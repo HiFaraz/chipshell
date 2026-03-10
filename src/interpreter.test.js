@@ -18,7 +18,7 @@ describe('createState', () => {
   it('has correct initial chips count', () => {
     const state = createState(0);
     expect(state.chips).toBe(0);
-    expect(state.needed).toBe(2);
+    expect(state.needed).toBe(1);
   });
 
   it('has empty backpack initially', () => {
@@ -121,9 +121,10 @@ describe('mv', () => {
 
   it('picks up chip', () => {
     let state = createState(0);
-    // Navigate to chip at [2,2]: start at [1,1], go right then down
-    state = execOne(state, 'mv 1 0').state;
-    const { state: newState, output, exitCode } = execOne(state, 'mv 0 1');
+    // Navigate to chip at [3,2]: start at [1,1], go right twice then down
+    state = execOne(state, 'mv 1 0').state; // [2,1]
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    const { state: newState, output, exitCode } = execOne(state, 'mv 0 1'); // [3,2] chip
     expect(exitCode).toBe(0);
     expect(newState.chips).toBe(1);
     expect(newState.backpack).toContain('chip');
@@ -132,32 +133,24 @@ describe('mv', () => {
 
   it('unlocks exit when all chips collected', () => {
     let state = createState(0);
-    // Collect first chip at [2,2]
+    // Level 0 (5x5): 1 chip at [3,2], exit at [2,4]
+    // Collect chip at [3,2]
     state = execOne(state, 'mv 1 0').state; // [2,1]
-    state = execOne(state, 'mv 0 1').state; // [2,2] - chip
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    state = execOne(state, 'mv 0 1').state; // [3,2] - chip
     expect(state.chips).toBe(1);
-
-    // Collect second chip at [5,4]
-    state = execOne(state, 'mv 1 0').state; // [3,2]
-    state = execOne(state, 'mv 0 1').state; // [3,3]
-    state = execOne(state, 'mv 0 1').state; // [3,4]
-    state = execOne(state, 'mv 1 0').state; // [4,4] - wall, this will fail
-    // Need different path - wall at [4,3] and [4,4]
-    // Let's reset and find proper path
+    expect(state.needed).toBe(1);
+    // Exit should now be unlocked (chips === needed)
   });
 
   it('blocks locked exit', () => {
     let state = createState(0);
-    // Exit is at [5,5]. Navigate there without chips
+    // Level 0 (5x5): Exit at [2,4]. Navigate there without getting chip first
     state = execOne(state, 'mv 1 0').state; // [2,1]
-    state = execOne(state, 'mv 1 0').state; // [3,1]
-    state = execOne(state, 'mv 1 0').state; // [4,1]
-    state = execOne(state, 'mv 1 0').state; // [5,1]
-    state = execOne(state, 'mv 0 1').state; // [5,2]
-    state = execOne(state, 'mv 0 1').state; // [5,3]
-    state = execOne(state, 'mv 0 1').state; // [5,4]
+    state = execOne(state, 'mv 0 1').state; // [2,2]
+    state = execOne(state, 'mv 0 1').state; // [2,3]
 
-    // Now try to enter exit at [5,5] without all chips
+    // Now try to enter exit at [2,4] without chip
     const { exitCode, output } = execOne(state, 'mv 0 1');
     expect(exitCode).toBe(1);
     expect(output.some(o => o.x.includes('exit locked'))).toBe(true);
@@ -165,30 +158,21 @@ describe('mv', () => {
 
   it('triggers win on open exit', () => {
     let state = createState(0);
-    // Collect both chips first, then go to exit
-    // Chip 1 at [2,2], Chip 2 at [5,4], Exit at [5,5]
+    // Level 0 (5x5): 1 chip at [3,2], exit at [2,4]
 
-    // Go to chip 1
+    // Get chip at [3,2]
     state = execOne(state, 'mv 1 0').state; // [2,1]
-    state = execOne(state, 'mv 0 1').state; // [2,2] - chip 1
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    state = execOne(state, 'mv 0 1').state; // [3,2] - chip
     expect(state.chips).toBe(1);
 
-    // Go to chip 2 at [5,4]
-    state = execOne(state, 'mv 1 0').state; // [3,2]
+    // Go to exit at [2,4]
     state = execOne(state, 'mv 0 1').state; // [3,3]
-    state = execOne(state, 'mv 0 1').state; // [3,4]
-    state = execOne(state, 'mv 1 0').state; // [4,4] - wall? Check level
-    // Level 0 grid row 4 (index): [1,0,0,0,1,2,1] - wall at 4, chip at 5
-    // We're at [3,4], need to go around
-    state = execOne(state, 'mv 0 1').state; // [3,5]
-    state = execOne(state, 'mv 1 0').state; // [4,5]
-    const result1 = execOne(state, 'mv 1 0'); // [5,5] - but first hit chip at [5,4]?
-    // Actually row 4 has chip at index 5, so [5,4] has chip
-    // Let me trace more carefully:
-    // From [3,4], go to [3,5] then [4,5] then need to get chip at [5,4]
-    state = result1.state;
-
-    // Let me restart with correct path
+    state = execOne(state, 'mv -1 0').state; // [2,3]
+    const result = execOne(state, 'mv 0 1'); // [2,4] - exit!
+    expect(result.state.won).toBe(true);
+    expect(result.state.pos).toEqual([2, 4]);
+    expect(result.output.some(o => o.x.includes('Level complete'))).toBe(true);
   });
 
   it('requires dx dy arguments', () => {
@@ -226,8 +210,10 @@ describe('ls', () => {
 
   it('ls /backpack with items', () => {
     let state = createState(0);
-    state = execOne(state, 'mv 1 0').state;
-    state = execOne(state, 'mv 0 1').state; // Pick up chip
+    // Chip at [3,2]: go right twice then down
+    state = execOne(state, 'mv 1 0').state; // [2,1]
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    state = execOne(state, 'mv 0 1').state; // [3,2] - Pick up chip
     const { output, exitCode } = execOne(state, 'ls /backpack');
     expect(exitCode).toBe(0);
     expect(output.some(o => o.x.includes('chip'))).toBe(true);
@@ -271,16 +257,18 @@ describe('whoami', () => {
     const { output, exitCode } = execOne(state, 'whoami');
     expect(exitCode).toBe(0);
     expect(output[0].x).toContain('Player');
-    expect(output[0].x).toContain('Chips: 0/2');
+    expect(output[0].x).toContain('Chips: 0/1');
     expect(output[0].x).toContain('Level: 1');
   });
 
   it('updates chip count', () => {
     let state = createState(0);
-    state = execOne(state, 'mv 1 0').state;
-    state = execOne(state, 'mv 0 1').state; // Pick up chip
+    // Chip at [3,2]: go right twice then down
+    state = execOne(state, 'mv 1 0').state; // [2,1]
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    state = execOne(state, 'mv 0 1').state; // [3,2] - Pick up chip
     const { output } = execOne(state, 'whoami');
-    expect(output[0].x).toContain('Chips: 1/2');
+    expect(output[0].x).toContain('Chips: 1/1');
   });
 });
 
@@ -377,9 +365,10 @@ describe('unalias', () => {
 describe('repeat', () => {
   it('repeats N times', () => {
     const state = createState(0);
-    const { state: newState, exitCode } = execOne(state, 'repeat 3 mv 1 0');
+    // Level 0 is 5x5: can only go right twice from [1,1] to [3,1]
+    const { state: newState, exitCode } = execOne(state, 'repeat 2 mv 1 0');
     expect(exitCode).toBe(0);
-    expect(newState.pos).toEqual([4, 1]); // Moved right 3 times
+    expect(newState.pos).toEqual([3, 1]); // Moved right 2 times
   });
 
   it('stops on error', () => {
@@ -416,9 +405,10 @@ describe('repeat', () => {
 describe('for', () => {
   it('basic loop', () => {
     const state = createState(0);
-    const { state: newState, exitCode } = execOne(state, 'for i in 1..3; do mv 1 0; done');
+    // Level 0 is 5x5: can only go right twice from [1,1] to [3,1]
+    const { state: newState, exitCode } = execOne(state, 'for i in 1..2; do mv 1 0; done');
     expect(exitCode).toBe(0);
-    expect(newState.pos).toEqual([4, 1]); // Moved right 3 times
+    expect(newState.pos).toEqual([3, 1]); // Moved right 2 times
   });
 
   it('stops on error', () => {
@@ -460,9 +450,10 @@ describe('lineExec', () => {
 
   it('handles multiple && segments', () => {
     const state = createState(0);
-    const { state: newState, exitCode } = lineExec(state, 'mv 1 0 && mv 1 0 && mv 1 0');
+    // Level 0 is 5x5: can go right twice, then down once
+    const { state: newState, exitCode } = lineExec(state, 'mv 1 0 && mv 1 0 && mv 0 1');
     expect(exitCode).toBe(0);
-    expect(newState.pos).toEqual([4, 1]);
+    expect(newState.pos).toEqual([3, 2]); // Moved right twice, down once
   });
 
   it('handles empty segments', () => {
@@ -695,87 +686,43 @@ describe('integration: full level completion', () => {
   it('can complete level 0', () => {
     let state = createState(0);
 
+    // Level 0 is now 5x5 with 1 chip at [3,2] and exit at [2,4]
     // Verify grid structure
-    expect(LEVELS[0].grid[3][4]).toBe(T.W); // Wall
-    expect(LEVELS[0].grid[4][4]).toBe(T.W); // Wall
-    expect(LEVELS[0].grid[4][5]).toBe(T.C); // Chip at [5,4]
-    expect(LEVELS[0].grid[5][5]).toBe(T.E); // Exit at [5,5]
+    expect(LEVELS[0].grid[2][3]).toBe(T.C); // Chip at [3,2]
+    expect(LEVELS[0].grid[4][2]).toBe(T.E); // Exit at [2,4]
 
-    // Navigate to chip 1 at [2,2]
+    // Navigate to chip at [3,2]
     state = execOne(state, 'mv 1 0').state; // [2,1]
-    state = execOne(state, 'mv 0 1').state; // [2,2] - chip 1
+    state = execOne(state, 'mv 1 0').state; // [3,1]
+    state = execOne(state, 'mv 0 1').state; // [3,2] - chip!
     expect(state.chips).toBe(1);
-    expect(state.pos).toEqual([2, 2]);
+    expect(state.pos).toEqual([3, 2]);
 
-    // Navigate to chip 2 at [5,4]
-    // Path: down to row 5, then right to x=5, then up to get chip
-    state = execOne(state, 'mv 0 1').state; // [2,3]
-    state = execOne(state, 'mv 0 1').state; // [2,4]
-    state = execOne(state, 'mv 0 1').state; // [2,5]
-    state = execOne(state, 'mv 1 0').state; // [3,5]
-    state = execOne(state, 'mv 1 0').state; // [4,5]
-    state = execOne(state, 'mv 1 0').state; // [5,5] - this is exit but locked
-    // Can't enter locked exit, need to go around
-    // Let's back up
+    // Navigate to exit at [2,4]
+    state = execOne(state, 'mv 0 1').state; // [3,3]
+    state = execOne(state, 'mv -1 0').state; // [2,3]
+    const result = execOne(state, 'mv 0 1'); // [2,4] - exit!
+    expect(result.state.won).toBe(true);
+    expect(result.state.pos).toEqual([2, 4]);
   });
 
   it('wins level when entering exit with all chips', () => {
     let state = createState(0);
 
-    // Collect chip 1 at [2,2]
-    state = execOne(state, 'mv 1 0').state; // [2,1]
-    state = execOne(state, 'mv 0 1').state; // [2,2] - chip 1
-    expect(state.chips).toBe(1);
-
-    // Go down and around to chip 2 at [5,4]
-    state = execOne(state, 'mv 0 1').state; // [2,3]
-    state = execOne(state, 'mv 0 1').state; // [2,4]
-    state = execOne(state, 'mv 0 1').state; // [2,5]
-    state = execOne(state, 'mv 1 0').state; // [3,5]
-    state = execOne(state, 'mv 1 0').state; // [4,5]
-    // Now at [4,5], need to get chip at [5,4]
-    state = execOne(state, 'mv 0 -1').state; // [4,4] - wall blocks!
-
-    // Alternative: from [4,5] go right to try exit (will fail), then up
-    // Actually wall is at [4,4] so we can't go up from [4,5]
-    // Need different path: go to [5,5] first... but that's exit
-
-    // Let's trace from [3,5]: right to [4,5], up blocked by wall at [4,4]
-    // Go [5,5] - blocked (exit locked)
-    // Need to reach [5,4] from [5,3] or [5,5]
-    // [5,3] accessible from [5,2] from [5,1]
-
-    // Reset and take different path
-    state = createState(0);
-    // Go right to x=5 on row 1, then down
+    // Level 0 (5x5): 1 chip at [3,2], exit at [2,4]
+    // Collect chip
     state = execOne(state, 'mv 1 0').state; // [2,1]
     state = execOne(state, 'mv 1 0').state; // [3,1]
-    state = execOne(state, 'mv 1 0').state; // [4,1]
-    state = execOne(state, 'mv 1 0').state; // [5,1]
-    state = execOne(state, 'mv 0 1').state; // [5,2]
-    state = execOne(state, 'mv 0 1').state; // [5,3]
-    state = execOne(state, 'mv 0 1').state; // [5,4] - chip 2!
+    state = execOne(state, 'mv 0 1').state; // [3,2] - chip!
     expect(state.chips).toBe(1);
-    expect(state.pos).toEqual([5, 4]);
+    expect(state.won).toBe(false); // Not won yet
 
-    // Now go back for chip 1 at [2,2]
-    state = execOne(state, 'mv 0 -1').state; // [5,3]
-    state = execOne(state, 'mv 0 -1').state; // [5,2]
-    state = execOne(state, 'mv -1 0').state; // [4,2]
-    state = execOne(state, 'mv -1 0').state; // [3,2]
-    state = execOne(state, 'mv -1 0').state; // [2,2] - chip 1!
-    expect(state.chips).toBe(2);
-    expect(state.won).toBe(false); // Not won yet, need to reach exit
-
-    // Now go to exit at [5,5]
-    state = execOne(state, 'mv 0 1').state; // [2,3]
-    state = execOne(state, 'mv 0 1').state; // [2,4]
-    state = execOne(state, 'mv 0 1').state; // [2,5]
-    state = execOne(state, 'mv 1 0').state; // [3,5]
-    state = execOne(state, 'mv 1 0').state; // [4,5]
-    const result = execOne(state, 'mv 1 0'); // [5,5] - exit!
+    // Go to exit
+    state = execOne(state, 'mv 0 1').state; // [3,3]
+    state = execOne(state, 'mv -1 0').state; // [2,3]
+    const result = execOne(state, 'mv 0 1'); // [2,4] - exit!
     expect(result.state.won).toBe(true);
-    expect(result.state.pos).toEqual([5, 5]);
+    expect(result.state.pos).toEqual([2, 4]);
     expect(result.output.some(o => o.x.includes('Level complete'))).toBe(true);
   });
 });
