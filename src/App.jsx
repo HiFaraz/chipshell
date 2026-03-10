@@ -165,6 +165,11 @@ export default function Game() {
     out("$ " + s, "c");
     if (gameState?.won && !fin) {
       const nl = lvl + 1;
+      if (nl >= LEVELS.length) {
+        setFin(true);
+        out("Congratulations! You've completed all levels!");
+        return;
+      }
       setLvl(nl);
       load(nl);
       return;
@@ -276,6 +281,7 @@ export default function Game() {
           value={editorText}
           onChange={e => setEditorText(e.target.value)}
           spellCheck={false}
+          aria-label={"Script editor for " + editing}
           style={{
             flex: 1, padding: 8, background: "transparent", border: "none", outline: "none",
             color: th.fg, fontFamily: "'Courier New', monospace", fontSize: 13,
@@ -297,7 +303,7 @@ export default function Game() {
     }}>
       <div style={{ padding: "0 12px 6px", fontWeight: 700, color: th.accent, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
         Script {running ? "running..." : "finished"}
-        {running && <span onClick={() => { runAbort.current = true; }} style={{ marginLeft: 8, color: th.accent, cursor: "pointer", textDecoration: "underline" }}>abort</span>}
+        {running && <button onClick={() => { runAbort.current = true; }} aria-label="Abort script execution" style={{ marginLeft: 8, color: th.accent, cursor: "pointer", textDecoration: "underline", background: "none", border: "none", padding: 0, font: "inherit" }}>abort</button>}
       </div>
       {runLines.map((l, i) => {
         const hi = i === runHighlight;
@@ -348,7 +354,7 @@ export default function Game() {
             <span style={{ color: th.ok, fontWeight: 700 }}>$</span>
             <input ref={inR} value={inp} onChange={e => setInp(e.target.value)} onKeyDown={onKey}
               placeholder={running && stepResolve.current ? "press Enter to step..." : "type a command..."}
-              spellCheck={false} autoComplete="off"
+              spellCheck={false} autoComplete="off" aria-label="Command input"
               style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: th.fg, fontFamily: "inherit", fontSize: "inherit", caretColor: th.accent }} />
           </div>
         )}
@@ -382,7 +388,7 @@ export default function Game() {
           <span style={{ color: th.ok, fontWeight: 700 }}>$</span>
           <input ref={inR} value={inp} onChange={e => setInp(e.target.value)} onKeyDown={onKey}
             placeholder={running && stepResolve.current ? "press Enter to step..." : "type a command..."}
-            spellCheck={false} autoComplete="off"
+            spellCheck={false} autoComplete="off" aria-label="Command input"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: th.fg, fontFamily: "inherit", fontSize: "inherit", caretColor: th.accent }} />
         </div>
       )}

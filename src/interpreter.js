@@ -271,7 +271,7 @@ export function execOne(state, raw) {
       return { state, output, exitCode: 1 };
     }
     const start = +m[1], end = +m[2];
-    if (end - start > 50) {
+    if (end - start + 1 > 50) {
       err("for: max 50 iterations");
       return { state, output, exitCode: 1 };
     }
