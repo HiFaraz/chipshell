@@ -171,7 +171,7 @@ export default function Game() {
       if (!l || l.startsWith("#")) {
         lines[i] = { ...lines[i], code: 0, status: "ok" };
         setRunLines([...lines]);
-        if (mode === "--slow") await delay(80);
+        if (mode === "--slow") await delay(150);
         continue;
       }
 
@@ -192,7 +192,7 @@ export default function Game() {
       if (stateRef.current.won) {
         setRunning(false); out(fn + ": exited with code 0"); return;
       }
-      if (mode === "--slow") await delay(200);
+      if (mode === "--slow") await delay(750);
     }
     setRunHighlight(-1); setRunning(false);
     out(fn + ": exited with code 0");
