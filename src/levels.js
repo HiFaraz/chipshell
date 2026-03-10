@@ -166,6 +166,31 @@ export const LEVELS = [
     start: [1, 1],
     tut: ["Ice is slippery but safe. Use everything you've learned."]
   },
+  // Level 9: Ice Sliding Tutorial (13x13)
+  {
+    w: 13, h: 13, chips: 4,
+    grid: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,1,0,0,0,0,0,1],
+      [1,0,14,14,14,0,1,0,0,2,0,0,1],
+      [1,0,0,0,0,1,1,0,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,1,1,1,0,1],
+      [1,1,1,1,0,0,14,14,14,4,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,1,0,1],
+      [1,0,2,0,1,0,14,14,14,14,1,0,1],
+      [1,0,0,0,1,0,0,0,0,0,0,0,1],
+      [1,0,0,0,1,1,1,1,0,0,0,2,1],
+      [1,0,14,14,14,14,0,8,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,2,3,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ],
+    start: [1, 1],
+    tut: [
+      "Ice! You'll slide until you hit something.",
+      "Plan your entry angle carefully.",
+      "Slide right on row 5 to reach the key!"
+    ]
+  },
 ];
 
 export const DIR = {

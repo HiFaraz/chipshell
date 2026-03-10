@@ -1287,3 +1287,196 @@ describe('createState with level object', () => {
     expect(result.state.won).toBe(true);
   });
 });
+
+describe('ice sliding', () => {
+  it('slides right across 3 ice tiles, stops at wall', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([4, 1]); // Slid all the way to last ice tile before wall
+    expect(output.some(o => o.x.includes('Sliding on ice'))).toBe(true);
+  });
+
+  it('slides and picks up chip mid-slide', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.C, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1], 1);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.chips).toBe(1);
+    expect(newState.backpack).toContain('chip');
+    expect(output.some(o => o.x.includes('Picked up chip'))).toBe(true);
+  });
+
+  it('slides and picks up key mid-slide', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.KR, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.backpack).toContain('red_key');
+    expect(output.some(o => o.x.includes('Picked up red_key'))).toBe(true);
+  });
+
+  it('slides into fire without boots = death during slide', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.FIRE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(output.some(o => o.t === 'death' && o.x === 'fire')).toBe(true);
+  });
+
+  it('slides into fire with boots = survive, stop on fire', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE, T.ICE, T.FIRE, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    // Pick up fire boots first
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots');
+
+    // Now step onto ice and slide - stop on fire (non-ice tile)
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([4, 1]); // Stopped on fire (non-ice tile)
+  });
+
+  it('slides onto non-ice tile = stops there', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.F, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([4, 1]); // Stopped on floor tile
+  });
+
+  it('slides from ice onto exit (with all chips) = win', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.C, T.ICE, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.E, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1], 1);
+    // Pick up chip first
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.chips).toBe(1);
+
+    // Move onto ice
+    state = execOne(state, 'mv 1 0').state;
+    // Now slide down to exit
+    const { state: newState, output, exitCode } = execOne(state, 'mv 0 1');
+    expect(exitCode).toBe(0);
+    expect(newState.won).toBe(true);
+    expect(output.some(o => o.x.includes('Level complete'))).toBe(true);
+  });
+
+  it('multiple slides in a chain command', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.F, T.W],
+      [T.W, T.F, T.F, T.F, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.F, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    // Chain: slide right, then down
+    const { state: newState, exitCode } = lineExec(state, 'mv 1 0 && mv 0 1');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([4, 4]); // Slid right to [4,1], then down through ice to [4,4]
+  });
+
+  it('stops at edge (out of bounds)', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.ICE, T.ICE],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    // Note: removed the right wall so we can test edge
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    // Should stop at last ice tile before going out of bounds
+    expect(newState.pos).toEqual([5, 1]);
+    expect(output.some(o => o.x.includes('Stopped at edge'))).toBe(true);
+  });
+
+  it('picks up boots mid-slide and stops', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.BOOTS_FIRE, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.backpack).toContain('fire_boots');
+    // Stops on boots tile (non-ice) after picking up
+    expect(newState.pos).toEqual([3, 1]);
+  });
+
+  it('opens door mid-slide if has key and stops', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KR, T.ICE, T.DR, T.F, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    // Pick up key first
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('red_key');
+
+    // Step onto ice and slide to door - stop there after opening
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.backpack).not.toContain('red_key'); // Key consumed
+    expect(newState.pos).toEqual([4, 1]); // Stopped on door tile (now floor)
+    expect(output.some(o => o.x.includes('Opened'))).toBe(true);
+  });
+
+  it('stops at door without key', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.DR, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0); // Successfully stopped, not an error
+    expect(newState.pos).toEqual([3, 1]); // Stopped at last ice before door
+    expect(output.some(o => o.x.includes('Stopped at edge'))).toBe(true);
+  });
+
+  it('single ice tile does not cause infinite loop', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([2, 1]); // On the ice tile, stopped by wall
+  });
+});

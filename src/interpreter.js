@@ -27,6 +27,132 @@ export function createState(levelOrIndex) {
 }
 
 /**
+ * Execute a single move step and handle tile interactions
+ * @param {object} state - game state
+ * @param {number} dx - x direction (-1, 0, or 1)
+ * @param {number} dy - y direction (-1, 0, or 1)
+ * @param {array} output - output array to append to
+ * @param {function} out - output function
+ * @param {function} err - error function
+ * @returns {{ state: object, output: array, exitCode: number, blocked?: boolean }}
+ */
+function moveOnce(state, dx, dy, output, out, err) {
+  const lv = state.levelObj || LEVELS[state.level];
+  const nx = state.pos[0] + dx, ny = state.pos[1] + dy;
+
+  if (nx < 0 || ny < 0 || nx >= lv.w || ny >= lv.h) {
+    err("mv: out of bounds");
+    return { state, output, exitCode: 1, blocked: true };
+  }
+
+  const tile = state.grid[ny][nx];
+
+  if (tile === T.W) {
+    err("mv: permission denied");
+    return { state, output, exitCode: 1, blocked: true };
+  }
+
+  if (tile === T.E && state.chips < state.needed) {
+    err("mv: exit locked (" + String(state.needed - state.chips) + " left)");
+    return { state, output, exitCode: 1, blocked: true };
+  }
+
+  // Door handling - check for matching key
+  if (DOOR_KEY[tile]) {
+    const neededKey = DOOR_KEY[tile];
+    if (!state.backpack.includes(neededKey)) {
+      err("mv: need " + neededKey);
+      return { state, output, exitCode: 1, blocked: true };
+    }
+  }
+
+  // Hazard handling - check for boots (before moving)
+  if (HAZARD_BOOT[tile] !== undefined) {
+    const neededBoot = HAZARD_BOOT[tile];
+    if (neededBoot && !state.backpack.includes(neededBoot)) {
+      // Death! Return death marker
+      const reason = tile === T.FIRE ? "fire" : "water";
+      return { state, output: [{ t: "death", x: reason }], exitCode: 1 };
+    }
+    // Ice is passable without boots (neededBoot is null for ice)
+  }
+
+  // Create new state with updated position
+  let newState = {
+    ...state,
+    pos: [nx, ny],
+  };
+
+  // Handle door - consume key and convert to floor
+  if (DOOR_KEY[tile]) {
+    const neededKey = DOOR_KEY[tile];
+    const newGrid = newState.grid.map(r => [...r]);
+    newGrid[ny][nx] = T.F; // Convert door to floor
+    const keyIndex = newState.backpack.indexOf(neededKey);
+    const filteredBackpack = [...newState.backpack];
+    filteredBackpack.splice(keyIndex, 1);
+    newState = {
+      ...newState,
+      grid: newGrid,
+      backpack: filteredBackpack,
+    };
+    out("Opened " + (TNAME[tile] || "door"));
+  }
+
+  // Pick up key
+  if (KEY_ITEM[tile]) {
+    const keyItem = KEY_ITEM[tile];
+    const newGrid = newState.grid.map(r => [...r]);
+    newGrid[ny][nx] = T.F;
+    newState = {
+      ...newState,
+      grid: newGrid,
+      backpack: [...newState.backpack, keyItem],
+    };
+    out("Picked up " + keyItem);
+  }
+
+  // Pick up boot
+  if (BOOT_ITEM[tile]) {
+    const bootItem = BOOT_ITEM[tile];
+    const newGrid = newState.grid.map(r => [...r]);
+    newGrid[ny][nx] = T.F;
+    newState = {
+      ...newState,
+      grid: newGrid,
+      backpack: [...newState.backpack, bootItem],
+    };
+    out("Picked up " + bootItem);
+  }
+
+  // Pick up chip
+  if (tile === T.C) {
+    const newGrid = newState.grid.map(r => [...r]);
+    newGrid[ny][nx] = T.F;
+    const newChips = newState.chips + 1;
+    const newBackpack = [...newState.backpack, "chip"];
+    newState = {
+      ...newState,
+      grid: newGrid,
+      chips: newChips,
+      backpack: newBackpack,
+    };
+    out("Picked up chip");
+    if (newChips >= newState.needed) {
+      out("All chips collected! Exit unlocked.");
+    }
+  }
+
+  // Win condition
+  if (tile === T.E && newState.chips >= newState.needed) {
+    newState = { ...newState, won: true };
+    out("Level complete! Press Enter.");
+  }
+
+  return { state: newState, output, exitCode: 0 };
+}
+
+/**
  * Execute a single command (no && chaining)
  * @param {object} state - game state
  * @param {string} raw - command string
@@ -99,125 +225,35 @@ export function execOne(state, raw) {
       err("mv: cardinal only");
       return { state, output, exitCode: 1 };
     }
-    const lv = state.levelObj || LEVELS[state.level];
-    const nx = state.pos[0] + dx, ny = state.pos[1] + dy;
-    if (nx < 0 || ny < 0 || nx >= lv.w || ny >= lv.h) {
-      err("mv: out of bounds");
-      return { state, output, exitCode: 1 };
-    }
-    const tile = state.grid[ny][nx];
-    if (tile === T.W) {
-      err("mv: permission denied");
-      return { state, output, exitCode: 1 };
-    }
-    if (tile === T.E && state.chips < state.needed) {
-      err("mv: exit locked (" + String(state.needed - state.chips) + " left)");
-      return { state, output, exitCode: 1 };
+
+    // Use moveOnce helper for initial move, then handle ice sliding
+    const result = moveOnce(state, dx, dy, output, out, err);
+    if (result.exitCode !== 0) {
+      return result;
     }
 
-    // Door handling - check for matching key
-    if (DOOR_KEY[tile]) {
-      const neededKey = DOOR_KEY[tile];
-      if (!state.backpack.includes(neededKey)) {
-        err("mv: need " + neededKey);
-        return { state, output, exitCode: 1 };
-      }
-      // Key will be consumed after we create new state
-    }
+    let newState = result.state;
 
-    // Hazard handling - check for boots (before moving)
-    if (HAZARD_BOOT[tile] !== undefined) {
-      const neededBoot = HAZARD_BOOT[tile];
-      if (neededBoot && !state.backpack.includes(neededBoot)) {
-        // Death! Return death marker
-        const reason = tile === T.FIRE ? "fire" : "water";
-        return { state, output: [{ t: "death", x: reason }], exitCode: 1 };
-      }
-      // Ice is passable without boots (neededBoot is null for ice)
-    }
+    // Ice sliding - keep moving in same direction while on ice
+    const lv = newState.levelObj || LEVELS[newState.level];
+    let currentTile = newState.grid[newState.pos[1]][newState.pos[0]];
 
-    // Create new state with updated position
-    let newState = {
-      ...state,
-      pos: [nx, ny],
-    };
+    while (currentTile === T.ICE && !newState.won) {
+      out("Sliding on ice...");
+      const slideResult = moveOnce(newState, dx, dy, output, out, err);
 
-    // Handle door - consume key and convert to floor
-    if (DOOR_KEY[tile]) {
-      const neededKey = DOOR_KEY[tile];
-      const newGrid = newState.grid.map(r => [...r]);
-      newGrid[ny][nx] = T.F; // Convert door to floor
-      const newBackpack = newState.backpack.filter(item => {
-        // Remove first matching key
-        if (item === neededKey) {
-          return false;
+      if (slideResult.exitCode !== 0) {
+        // Hit wall or out of bounds - stop on current ice tile
+        if (slideResult.blocked) {
+          out("Stopped at edge.");
+          break;
         }
-        return true;
-      });
-      // Only remove one key
-      const keyIndex = newState.backpack.indexOf(neededKey);
-      const filteredBackpack = [...newState.backpack];
-      filteredBackpack.splice(keyIndex, 1);
-      newState = {
-        ...newState,
-        grid: newGrid,
-        backpack: filteredBackpack,
-      };
-      out("Opened " + (TNAME[tile] || "door"));
-    }
-
-    // Pick up key
-    if (KEY_ITEM[tile]) {
-      const keyItem = KEY_ITEM[tile];
-      const newGrid = newState.grid.map(r => [...r]);
-      newGrid[ny][nx] = T.F;
-      newState = {
-        ...newState,
-        grid: newGrid,
-        backpack: [...newState.backpack, keyItem],
-      };
-      out("Picked up " + keyItem);
-    }
-
-    // Pick up boot
-    if (BOOT_ITEM[tile]) {
-      const bootItem = BOOT_ITEM[tile];
-      const newGrid = newState.grid.map(r => [...r]);
-      newGrid[ny][nx] = T.F;
-      newState = {
-        ...newState,
-        grid: newGrid,
-        backpack: [...newState.backpack, bootItem],
-      };
-      out("Picked up " + bootItem);
-    }
-
-    // Pick up chip
-    if (tile === T.C) {
-      const newGrid = newState.grid.map(r => [...r]);
-      newGrid[ny][nx] = T.F;
-      const newChips = newState.chips + 1;
-      const newBackpack = [...newState.backpack, "chip"];
-      newState = {
-        ...newState,
-        grid: newGrid,
-        chips: newChips,
-        backpack: newBackpack,
-      };
-      out("Picked up chip");
-      if (newChips >= newState.needed) {
-        out("All chips collected! Exit unlocked.");
+        // Death during slide (fire/water)
+        return slideResult;
       }
-    }
 
-    // Win condition
-    if (tile === T.E && newState.chips >= newState.needed) {
-      newState = { ...newState, won: true };
-      if (state.level >= 0 && state.level + 1 < LEVELS.length) {
-        out("Level complete! Press Enter.");
-      } else {
-        out("Level complete! Press Enter.");
-      }
+      newState = slideResult.state;
+      currentTile = newState.grid[newState.pos[1]][newState.pos[0]];
     }
 
     return { state: newState, output, exitCode: 0 };
