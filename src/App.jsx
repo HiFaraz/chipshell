@@ -3,6 +3,7 @@ import { THEMES } from "./themes.js";
 import { T, LEVELS } from "./levels.js";
 import { createState, lineExec } from "./interpreter.js";
 import { generateLevel } from "./levelgen.js";
+import { getTipForLevel, getLevelSubtitle, DEATH_MESSAGES } from "./tips.js";
 
 const VR = 4;
 
@@ -22,6 +23,9 @@ export default function Game() {
   const [runHighlight, setRunHighlight] = useState(-1);
   const [sheetSnap, setSheetSnap] = useState("log");
   const [isMobile, setIsMobile] = useState(false);
+  const [showInterstitial, setShowInterstitial] = useState(false);
+  const [interstitialData, setInterstitialData] = useState(null);
+  const [showDeath, setShowDeath] = useState(null); // null or { type: 'fire'|'water' }
 
   const logR = useRef(null), inR = useRef(null), edR = useRef(null);
   const stateRef = useRef(null);
@@ -86,12 +90,12 @@ export default function Game() {
         load(stateRef.current.level, true);
         out("Level reset. Scripts preserved.");
       } else if (o.t === "death") {
-        // Handle death - show message and auto-reset after 1s
-        err("You died! (" + o.x + ")");
+        // Handle death - show death screen
+        setShowDeath({ type: o.x });
         setTimeout(() => {
+          setShowDeath(null);
           load(stateRef.current.level, true);
-          out("Level reset. Scripts preserved.");
-        }, 1000);
+        }, 2000);
       } else if (o.t === "o" || o.t === "e" || o.t === "s" || o.t === "c") {
         setLog(prev => [...prev, o]);
       }
@@ -100,9 +104,28 @@ export default function Game() {
 
   const execCommand = (raw) => {
     const result = lineExec(stateRef.current, raw);
-    stateRef.current = result.state;
-    setGameState(result.state);
+    let newState = result.state;
+
+    // Increment moves on successful command
+    if (result.exitCode === 0) {
+      newState = { ...newState, moves: newState.moves + 1 };
+    }
+
+    stateRef.current = newState;
+    setGameState(newState);
     applyOutput(result.output);
+
+    // Check for win - show interstitial
+    if (newState.won && !showInterstitial) {
+      setInterstitialData({
+        level: lvl,
+        moves: newState.moves,
+        chips: newState.chips,
+        levelObj: newState.levelObj,
+      });
+      setShowInterstitial(true);
+    }
+
     return result.exitCode;
   };
 
@@ -178,6 +201,22 @@ export default function Game() {
 
   const execInput = (raw) => {
     const s = raw.trim(); if (!s) return;
+
+    // Handle interstitial dismissal
+    if (showInterstitial) {
+      if (s === "" || s === "next" || s === "n") {
+        dismissInterstitial();
+      }
+      return;
+    }
+
+    // Handle death screen dismissal
+    if (showDeath) {
+      setShowDeath(null);
+      load(stateRef.current.level, true);
+      return;
+    }
+
     setHist(prev => [s, ...prev]); setHI(-1);
 
     if (running && stepResolve.current) {
@@ -186,15 +225,24 @@ export default function Game() {
     }
 
     out("$ " + s, "c");
-    if (gameState?.won && !fin) {
-      const nl = lvl + 1;
-      // No longer cap at LEVELS.length - procedural levels continue forever
-      setLvl(nl);
-      load(nl);
-      return;
-    }
     if (s === "abort" && running) { runAbort.current = true; return; }
+    if (s === "next" || s === "n") {
+      if (gameState?.won) {
+        const nl = lvl + 1;
+        setLvl(nl);
+        load(nl);
+        return;
+      }
+    }
     execCommand(s);
+  };
+
+  const dismissInterstitial = () => {
+    setShowInterstitial(false);
+    setInterstitialData(null);
+    const nl = lvl + 1;
+    setLvl(nl);
+    load(nl);
   };
 
   const saveEditor = () => {
@@ -214,8 +262,23 @@ export default function Game() {
   };
 
   const onKey = (e) => {
-    if (e.key === "Enter") { execInput(inp); setInp(""); }
-    else if (e.key === "ArrowUp") {
+    if (e.key === "Enter") {
+      // Handle interstitial dismissal
+      if (showInterstitial) {
+        dismissInterstitial();
+        setInp("");
+        return;
+      }
+      // Handle death screen dismissal
+      if (showDeath) {
+        setShowDeath(null);
+        load(stateRef.current.level, true);
+        setInp("");
+        return;
+      }
+      execInput(inp);
+      setInp("");
+    } else if (e.key === "ArrowUp") {
       e.preventDefault(); if (!hist.length) return;
       const i = Math.min(hI + 1, hist.length - 1); setHI(i); setInp(hist[i]);
     } else if (e.key === "ArrowDown") {
@@ -369,6 +432,198 @@ export default function Game() {
       })}
     </div>
   );
+
+  // Theme-specific interstitial styling
+  const getInterstitialStyle = () => {
+    const base = {
+      background: th.bg,
+      color: th.fg,
+      fontFamily: th.font,
+      height: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 32,
+      textAlign: "center",
+    };
+    return base;
+  };
+
+  // Celebration interstitial screen
+  if (showInterstitial && interstitialData) {
+    const tip = getTipForLevel(interstitialData.level);
+    const subtitle = getLevelSubtitle(interstitialData.level, interstitialData.levelObj);
+    const isTerminal = theme === "terminal";
+    const isCandy = theme === "candy";
+    const isRetro = theme === "retro";
+
+    return (
+      <div style={getInterstitialStyle()} onClick={() => inR.current?.focus()}>
+        <div style={{ maxWidth: 500, width: "100%" }}>
+          {/* Header */}
+          <div style={{
+            fontSize: isTerminal ? 28 : 36,
+            fontWeight: 700,
+            color: th.accent,
+            marginBottom: 8,
+            letterSpacing: isTerminal ? 4 : 2,
+            fontFamily: isTerminal ? "'IBM Plex Mono', monospace" : th.font,
+          }}>
+            {isTerminal ? "MISSION COMPLETE" : isCandy ? "LEVEL COMPLETE!" : "LEVEL COMPLETE"}
+          </div>
+
+          {/* Level number and subtitle */}
+          <div style={{
+            fontSize: 20,
+            color: th.fg,
+            marginBottom: 24,
+          }}>
+            Level {interstitialData.level + 1} {isCandy && "🎉"}
+          </div>
+          <div style={{
+            fontSize: 16,
+            color: th.muted,
+            marginBottom: 32,
+            fontStyle: theme === "paper" || theme === "forest" ? "italic" : "normal",
+          }}>
+            {subtitle}
+          </div>
+
+          {/* Stats */}
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: 32,
+            marginBottom: 32,
+            padding: "16px 24px",
+            background: th.gridBg,
+            borderRadius: 8,
+            border: "1px solid " + th.gridBorder,
+          }}>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: th.ok }}>{interstitialData.moves}</div>
+              <div style={{ fontSize: 12, color: th.muted, textTransform: "uppercase", letterSpacing: 1 }}>Moves</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: th.ok }}>{interstitialData.chips}</div>
+              <div style={{ fontSize: 12, color: th.muted, textTransform: "uppercase", letterSpacing: 1 }}>Chips</div>
+            </div>
+          </div>
+
+          {/* Tip */}
+          <div style={{
+            padding: "16px 20px",
+            background: isTerminal ? th.headerBg : th.inputBg,
+            borderRadius: 6,
+            marginBottom: 32,
+            borderLeft: "3px solid " + th.accent,
+          }}>
+            <div style={{ fontSize: 11, color: th.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+              {isTerminal ? "> TIP" : "Tip"}
+            </div>
+            <div style={{
+              fontSize: 14,
+              color: th.fg,
+              fontFamily: "'Courier New', monospace",
+              lineHeight: 1.5,
+            }}>
+              {tip}
+            </div>
+          </div>
+
+          {/* Continue prompt */}
+          <div style={{
+            fontSize: 14,
+            color: th.muted,
+            animation: "pulse 2s infinite",
+          }}>
+            {isTerminal ? "Press Enter to proceed..." : isRetro ? "Press Enter or type 'next'" : "Press Enter to continue"}
+          </div>
+        </div>
+
+        {/* Hidden input to capture Enter key */}
+        <input
+          ref={inR}
+          value={inp}
+          onChange={e => setInp(e.target.value)}
+          onKeyDown={onKey}
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          autoFocus
+          aria-label="Press Enter to continue"
+        />
+      </div>
+    );
+  }
+
+  // Death screen
+  if (showDeath) {
+    const deathInfo = DEATH_MESSAGES[showDeath.type] || { header: "GAME OVER", message: "You died!", tip: "Be more careful next time." };
+    const isTerminal = theme === "terminal";
+
+    return (
+      <div style={{
+        ...getInterstitialStyle(),
+        background: isTerminal ? "#1a0505" : th.bg,
+      }} onClick={() => { setShowDeath(null); load(stateRef.current.level, true); }}>
+        <div style={{ maxWidth: 400, width: "100%" }}>
+          {/* Header */}
+          <div style={{
+            fontSize: isTerminal ? 28 : 32,
+            fontWeight: 700,
+            color: th.accent,
+            marginBottom: 16,
+            letterSpacing: isTerminal ? 4 : 2,
+          }}>
+            {deathInfo.header}
+          </div>
+
+          {/* Death message */}
+          <div style={{
+            fontSize: 16,
+            color: th.fg,
+            marginBottom: 24,
+          }}>
+            {deathInfo.message}
+          </div>
+
+          {/* Tip */}
+          <div style={{
+            padding: "12px 16px",
+            background: th.gridBg,
+            borderRadius: 6,
+            marginBottom: 24,
+            borderLeft: "3px solid " + th.accent,
+          }}>
+            <div style={{
+              fontSize: 13,
+              color: th.muted,
+              fontFamily: "'Courier New', monospace",
+            }}>
+              {deathInfo.tip}
+            </div>
+          </div>
+
+          {/* Continue prompt */}
+          <div style={{
+            fontSize: 13,
+            color: th.muted,
+          }}>
+            Resetting in 2s... (or press Enter)
+          </div>
+        </div>
+
+        {/* Hidden input */}
+        <input
+          ref={inR}
+          onKeyDown={onKey}
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          autoFocus
+          aria-label="Press Enter to continue"
+        />
+      </div>
+    );
+  }
 
   if (isMobile) {
     return (

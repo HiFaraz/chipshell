@@ -23,6 +23,7 @@ export function createState(levelOrIndex) {
     scripts: {},
     level: isIndex ? levelOrIndex : -1, // -1 for generated levels
     levelObj: lv, // Store level object for dimensions
+    moves: 0, // Track successful commands
   };
 }
 
@@ -292,7 +293,7 @@ export function execOne(state, raw) {
 
   // whoami
   if (cmd === "whoami") {
-    out("Player | Chips: " + state.chips + "/" + state.needed + " | Level: " + (state.level + 1));
+    out("Player | Chips: " + state.chips + "/" + state.needed + " | Level: " + (state.level + 1) + " | Moves: " + state.moves);
     return { state, output, exitCode: 0 };
   }
 
