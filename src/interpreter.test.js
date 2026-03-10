@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createState, execOne, lineExec, T, LEVELS, THEMES, MAN } from './interpreter.js';
+import { createState, execOne, lineExec, T, LEVELS, THEMES, MAN, DOOR_KEY, KEY_ITEM, HAZARD_BOOT, BOOT_ITEM } from './interpreter.js';
 
 describe('createState', () => {
   it('creates valid state from level 0', () => {
@@ -818,5 +818,472 @@ describe('for loop iteration limits', () => {
     const { state: newState, exitCode } = execOne(state, 'for i in 5..1; do mv 1 0; done');
     expect(exitCode).toBe(0);
     expect(newState.pos).toEqual([1, 1]); // No movement - loop didn't run
+  });
+});
+
+// Helper to create a custom test level
+function createTestLevel(grid, start, chips = 0) {
+  const level = {
+    w: grid[0].length,
+    h: grid.length,
+    chips,
+    grid,
+    start,
+    tut: ["Test level"],
+  };
+  return createState(level);
+}
+
+describe('key pickup', () => {
+  it('picks up red key', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.KR],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.backpack).toContain('red_key');
+    expect(newState.grid[1][2]).toBe(T.F); // Key replaced with floor
+    expect(output.some(o => o.x.includes('red_key'))).toBe(true);
+  });
+
+  it('picks up blue key', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.KB],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('blue_key');
+  });
+
+  it('picks up green key', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.KG],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('green_key');
+  });
+
+  it('picks up yellow key', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.KY],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('yellow_key');
+  });
+});
+
+describe('door mechanics', () => {
+  it('opens door with correct key (key consumed)', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KR, T.DR],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    // Pick up red key
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('red_key');
+    expect(state.pos).toEqual([2, 1]);
+
+    // Open red door
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+    expect(newState.backpack).not.toContain('red_key'); // Key consumed
+    expect(newState.grid[1][3]).toBe(T.F); // Door becomes floor
+    expect(output.some(o => o.x.includes('Opened'))).toBe(true);
+  });
+
+  it('blocks door without key', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.DR],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(newState.pos).toEqual([1, 1]); // Didn't move
+    expect(output.some(o => o.x.includes('need red_key'))).toBe(true);
+  });
+
+  it('blocks door with wrong color key', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KB, T.DR],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    // Pick up blue key
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('blue_key');
+
+    // Try to open red door with blue key
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(newState.pos).toEqual([2, 1]); // Didn't move to door
+    expect(output.some(o => o.x.includes('need red_key'))).toBe(true);
+    expect(newState.backpack).toContain('blue_key'); // Key not consumed
+  });
+
+  it('blue door requires blue key', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KB, T.DB],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    state = execOne(state, 'mv 1 0').state; // Pick up blue key
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+    expect(newState.backpack).not.toContain('blue_key');
+  });
+
+  it('green door requires green key', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KG, T.DG],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    state = execOne(state, 'mv 1 0').state;
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+    expect(newState.backpack).not.toContain('green_key');
+  });
+
+  it('yellow door requires yellow key', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.KY, T.DY],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    state = execOne(state, 'mv 1 0').state;
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+    expect(newState.backpack).not.toContain('yellow_key');
+  });
+});
+
+describe('fire hazard', () => {
+  it('kills without boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.FIRE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(output.some(o => o.t === 'death' && o.x === 'fire')).toBe(true);
+  });
+
+  it('passable with fire_boots', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE, T.FIRE],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    // Pick up fire boots
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots');
+
+    // Walk on fire safely
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+  });
+});
+
+describe('water hazard', () => {
+  it('kills without boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.WATER],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(output.some(o => o.t === 'death' && o.x === 'water')).toBe(true);
+  });
+
+  it('passable with water_boots', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_WATER, T.WATER],
+      [T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    // Pick up water boots
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('water_boots');
+
+    // Walk on water safely
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([3, 1]);
+  });
+});
+
+describe('ice hazard', () => {
+  it('passable without boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.ICE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([2, 1]);
+  });
+});
+
+describe('boot pickup', () => {
+  it('picks up fire boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState, output } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('fire_boots');
+    expect(newState.grid[1][2]).toBe(T.F);
+    expect(output.some(o => o.x.includes('fire_boots'))).toBe(true);
+  });
+
+  it('picks up water boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_WATER],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('water_boots');
+  });
+
+  it('picks up ice boots', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_ICE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    expect(newState.backpack).toContain('ice_boots');
+  });
+});
+
+describe('boots NOT consumed', () => {
+  it('fire boots remain after walking on fire', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE, T.FIRE, T.FIRE],
+      [T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    // Pick up fire boots
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots');
+
+    // Walk on fire twice
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots'); // Still have boots
+
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots'); // Still have boots
+    expect(state.pos).toEqual([4, 1]);
+  });
+
+  it('water boots remain after walking on water', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_WATER, T.WATER, T.WATER],
+      [T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+
+    state = execOne(state, 'mv 1 0').state; // Get boots
+    state = execOne(state, 'mv 1 0').state; // Walk on water
+    state = execOne(state, 'mv 1 0').state; // Walk on more water
+
+    expect(state.backpack).toContain('water_boots');
+    expect(state.pos).toEqual([4, 1]);
+  });
+});
+
+describe('death marker', () => {
+  it('returns correct death marker for fire', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.FIRE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'mv 1 0');
+
+    const deathMarker = output.find(o => o.t === 'death');
+    expect(deathMarker).toBeDefined();
+    expect(deathMarker.x).toBe('fire');
+  });
+
+  it('returns correct death marker for water', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.WATER],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'mv 1 0');
+
+    const deathMarker = output.find(o => o.t === 'death');
+    expect(deathMarker).toBeDefined();
+    expect(deathMarker.x).toBe('water');
+  });
+});
+
+describe('ls with new tile types', () => {
+  it('shows key name', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.KR],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('red_key'))).toBe(true);
+  });
+
+  it('shows door name', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.DB],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('blue_door'))).toBe(true);
+  });
+
+  it('shows fire name', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.FIRE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('fire'))).toBe(true);
+  });
+
+  it('shows water name', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.WATER],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('water'))).toBe(true);
+  });
+
+  it('shows ice name', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.ICE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('ice'))).toBe(true);
+  });
+
+  it('shows boot names', () => {
+    const grid = [
+      [T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE],
+      [T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output } = execOne(state, 'ls');
+    expect(output.some(o => o.x.includes('fire_boots'))).toBe(true);
+  });
+});
+
+describe('createState with level object', () => {
+  it('creates state from level object', () => {
+    const level = {
+      w: 5,
+      h: 5,
+      chips: 1,
+      grid: [
+        [T.W, T.W, T.W, T.W, T.W],
+        [T.W, T.F, T.F, T.C, T.W],
+        [T.W, T.F, T.F, T.F, T.W],
+        [T.W, T.F, T.F, T.E, T.W],
+        [T.W, T.W, T.W, T.W, T.W],
+      ],
+      start: [1, 1],
+      tut: ["Test"],
+    };
+
+    const state = createState(level);
+    expect(state.pos).toEqual([1, 1]);
+    expect(state.needed).toBe(1);
+    expect(state.level).toBe(-1); // Generated level marker
+    expect(state.levelObj).toBe(level);
+  });
+
+  it('can play through custom level', () => {
+    const level = {
+      w: 5,
+      h: 5,
+      chips: 1,
+      grid: [
+        [T.W, T.W, T.W, T.W, T.W],
+        [T.W, T.F, T.F, T.C, T.W],
+        [T.W, T.F, T.F, T.F, T.W],
+        [T.W, T.F, T.F, T.E, T.W],
+        [T.W, T.W, T.W, T.W, T.W],
+      ],
+      start: [1, 1],
+      tut: ["Test"],
+    };
+
+    let state = createState(level);
+
+    // Move to chip
+    state = execOne(state, 'mv 1 0').state;
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.chips).toBe(1);
+
+    // Move to exit
+    state = execOne(state, 'mv 0 1').state;
+    const result = execOne(state, 'mv 0 1');
+    expect(result.state.won).toBe(true);
   });
 });

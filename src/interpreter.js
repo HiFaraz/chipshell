@@ -1,16 +1,17 @@
-import { T, LEVELS, DIR, TNAME, MAN } from './levels.js';
+import { T, LEVELS, DIR, TNAME, MAN, DOOR_KEY, KEY_ITEM, HAZARD_BOOT, BOOT_ITEM } from './levels.js';
 import { THEMES } from './themes.js';
 
 // Re-export constants for convenience
-export { T, LEVELS, DIR, TNAME, MAN, THEMES };
+export { T, LEVELS, DIR, TNAME, MAN, THEMES, DOOR_KEY, KEY_ITEM, HAZARD_BOOT, BOOT_ITEM };
 
 /**
- * Create initial game state from a level index
- * @param {number} levelIndex
+ * Create initial game state from a level index or level object
+ * @param {number|object} levelOrIndex - level index or level object
  * @returns {object} game state
  */
-export function createState(levelIndex) {
-  const lv = LEVELS[levelIndex];
+export function createState(levelOrIndex) {
+  const isIndex = typeof levelOrIndex === 'number';
+  const lv = isIndex ? LEVELS[levelOrIndex] : levelOrIndex;
   return {
     grid: lv.grid.map(r => [...r]),
     pos: [...lv.start],
@@ -20,7 +21,8 @@ export function createState(levelIndex) {
     won: false,
     aliases: { r: "mv 1 0", l: "mv -1 0", u: "mv 0 -1", d: "mv 0 1" },
     scripts: {},
-    level: levelIndex,
+    level: isIndex ? levelOrIndex : -1, // -1 for generated levels
+    levelObj: lv, // Store level object for dimensions
   };
 }
 
@@ -97,7 +99,7 @@ export function execOne(state, raw) {
       err("mv: cardinal only");
       return { state, output, exitCode: 1 };
     }
-    const lv = LEVELS[state.level];
+    const lv = state.levelObj || LEVELS[state.level];
     const nx = state.pos[0] + dx, ny = state.pos[1] + dy;
     if (nx < 0 || ny < 0 || nx >= lv.w || ny >= lv.h) {
       err("mv: out of bounds");
@@ -113,11 +115,82 @@ export function execOne(state, raw) {
       return { state, output, exitCode: 1 };
     }
 
+    // Door handling - check for matching key
+    if (DOOR_KEY[tile]) {
+      const neededKey = DOOR_KEY[tile];
+      if (!state.backpack.includes(neededKey)) {
+        err("mv: need " + neededKey);
+        return { state, output, exitCode: 1 };
+      }
+      // Key will be consumed after we create new state
+    }
+
+    // Hazard handling - check for boots (before moving)
+    if (HAZARD_BOOT[tile] !== undefined) {
+      const neededBoot = HAZARD_BOOT[tile];
+      if (neededBoot && !state.backpack.includes(neededBoot)) {
+        // Death! Return death marker
+        const reason = tile === T.FIRE ? "fire" : "water";
+        return { state, output: [{ t: "death", x: reason }], exitCode: 1 };
+      }
+      // Ice is passable without boots (neededBoot is null for ice)
+    }
+
     // Create new state with updated position
     let newState = {
       ...state,
       pos: [nx, ny],
     };
+
+    // Handle door - consume key and convert to floor
+    if (DOOR_KEY[tile]) {
+      const neededKey = DOOR_KEY[tile];
+      const newGrid = newState.grid.map(r => [...r]);
+      newGrid[ny][nx] = T.F; // Convert door to floor
+      const newBackpack = newState.backpack.filter(item => {
+        // Remove first matching key
+        if (item === neededKey) {
+          return false;
+        }
+        return true;
+      });
+      // Only remove one key
+      const keyIndex = newState.backpack.indexOf(neededKey);
+      const filteredBackpack = [...newState.backpack];
+      filteredBackpack.splice(keyIndex, 1);
+      newState = {
+        ...newState,
+        grid: newGrid,
+        backpack: filteredBackpack,
+      };
+      out("Opened " + (TNAME[tile] || "door"));
+    }
+
+    // Pick up key
+    if (KEY_ITEM[tile]) {
+      const keyItem = KEY_ITEM[tile];
+      const newGrid = newState.grid.map(r => [...r]);
+      newGrid[ny][nx] = T.F;
+      newState = {
+        ...newState,
+        grid: newGrid,
+        backpack: [...newState.backpack, keyItem],
+      };
+      out("Picked up " + keyItem);
+    }
+
+    // Pick up boot
+    if (BOOT_ITEM[tile]) {
+      const bootItem = BOOT_ITEM[tile];
+      const newGrid = newState.grid.map(r => [...r]);
+      newGrid[ny][nx] = T.F;
+      newState = {
+        ...newState,
+        grid: newGrid,
+        backpack: [...newState.backpack, bootItem],
+      };
+      out("Picked up " + bootItem);
+    }
 
     // Pick up chip
     if (tile === T.C) {
@@ -140,10 +213,10 @@ export function execOne(state, raw) {
     // Win condition
     if (tile === T.E && newState.chips >= newState.needed) {
       newState = { ...newState, won: true };
-      if (state.level + 1 < LEVELS.length) {
+      if (state.level >= 0 && state.level + 1 < LEVELS.length) {
         out("Level complete! Press Enter.");
       } else {
-        out("All levels complete!");
+        out("Level complete! Press Enter.");
       }
     }
 
@@ -161,7 +234,7 @@ export function execOne(state, raw) {
       out(k.length ? k.join("  ") : "No scripts. Try: nano solve.sh");
       return { state, output, exitCode: 0 };
     }
-    const lv = LEVELS[state.level];
+    const lv = state.levelObj || LEVELS[state.level];
     [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => {
       const x = state.pos[0] + dx, y = state.pos[1] + dy;
       const nm = DIR[dx + "," + dy];

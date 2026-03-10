@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { THEMES } from "./themes.js";
 import { T, LEVELS } from "./levels.js";
 import { createState, lineExec } from "./interpreter.js";
+import { generateLevel } from "./levelgen.js";
 
 const VR = 4;
 
@@ -35,7 +36,22 @@ export default function Game() {
   }, []);
 
   const load = useCallback((i, preserveScripts = false) => {
-    const newState = createState(i);
+    let newState;
+    let tut;
+
+    if (i < LEVELS.length) {
+      // Use handcrafted level
+      newState = createState(i);
+      tut = LEVELS[i].tut;
+    } else {
+      // Generate procedural level
+      const difficulty = Math.min(i - LEVELS.length + 1, 10);
+      const level = generateLevel(difficulty);
+      newState = createState(level);
+      newState.level = i; // Track overall level number
+      tut = level.tut;
+    }
+
     if (preserveScripts && stateRef.current) {
       newState.scripts = { ...stateRef.current.scripts };
     }
@@ -43,7 +59,7 @@ export default function Game() {
     stateRef.current = newState;
     setRunLines([]); setRunHighlight(-1); setRunning(false);
     runAbort.current = false;
-    setLog(LEVELS[i].tut.map(x => ({ t: "s", x })));
+    setLog(tut.map(x => ({ t: "s", x })));
   }, []);
 
   useEffect(() => { load(0); }, [load]);
@@ -69,6 +85,13 @@ export default function Game() {
       } else if (o.t === "reset") {
         load(stateRef.current.level, true);
         out("Level reset. Scripts preserved.");
+      } else if (o.t === "death") {
+        // Handle death - show message and auto-reset after 1s
+        err("You died! (" + o.x + ")");
+        setTimeout(() => {
+          load(stateRef.current.level, true);
+          out("Level reset. Scripts preserved.");
+        }, 1000);
       } else if (o.t === "o" || o.t === "e" || o.t === "s" || o.t === "c") {
         setLog(prev => [...prev, o]);
       }
@@ -165,11 +188,7 @@ export default function Game() {
     out("$ " + s, "c");
     if (gameState?.won && !fin) {
       const nl = lvl + 1;
-      if (nl >= LEVELS.length) {
-        setFin(true);
-        out("Congratulations! You've completed all levels!");
-        return;
-      }
+      // No longer cap at LEVELS.length - procedural levels continue forever
       setLvl(nl);
       load(nl);
       return;
@@ -208,12 +227,44 @@ export default function Game() {
 
   if (!gameState) return null;
 
-  const { grid, pos, chips, needed, won } = gameState;
-  const lv = LEVELS[lvl];
+  const { grid, pos, chips, needed, won, levelObj } = gameState;
+  const lv = levelObj || LEVELS[lvl];
   const vx0 = Math.max(0, Math.min(pos[0] - VR, lv.w - VR * 2 - 1));
   const vy0 = Math.max(0, Math.min(pos[1] - VR, lv.h - VR * 2 - 1));
   const vx1 = Math.min(lv.w, vx0 + VR * 2 + 1);
   const vy1 = Math.min(lv.h, vy0 + VR * 2 + 1);
+
+  // Helper to get tile emoji and background
+  const getTileRender = (t) => {
+    let em = "";
+    let bg = th.gridBg;
+
+    switch (t) {
+      case T.W: em = th.wall; bg = th.wallBg; break;
+      case T.C: em = th.chip; break;
+      case T.E: em = th.exit; bg = chips >= needed ? th.ok + "22" : th.accent + "22"; break;
+      // Keys
+      case T.KR: em = th.keyRed; bg = th.keyRedBg; break;
+      case T.KB: em = th.keyBlue; bg = th.keyBlueBg; break;
+      case T.KG: em = th.keyGreen; bg = th.keyGreenBg; break;
+      case T.KY: em = th.keyYellow; bg = th.keyYellowBg; break;
+      // Doors
+      case T.DR: em = th.doorRed; bg = th.doorRedBg; break;
+      case T.DB: em = th.doorBlue; bg = th.doorBlueBg; break;
+      case T.DG: em = th.doorGreen; bg = th.doorGreenBg; break;
+      case T.DY: em = th.doorYellow; bg = th.doorYellowBg; break;
+      // Hazards
+      case T.FIRE: em = th.fire; bg = th.fireBg; break;
+      case T.WATER: em = th.water; bg = th.waterBg; break;
+      case T.ICE: em = th.ice; bg = th.iceBg; break;
+      // Boots
+      case T.BOOTS_FIRE: em = th.bootsFire; bg = th.fireBg + "88"; break;
+      case T.BOOTS_WATER: em = th.bootsWater; bg = th.waterBg + "88"; break;
+      case T.BOOTS_ICE: em = th.bootsIce; bg = th.iceBg + "88"; break;
+      default: break;
+    }
+    return { em, bg };
+  };
 
   const rows = [];
   for (let y = vy0; y < vy1; y++) {
@@ -221,19 +272,12 @@ export default function Game() {
     for (let x = vx0; x < vx1; x++) {
       const isP = x === pos[0] && y === pos[1];
       const t = grid[y][x];
-      let bg = th.gridBg;
-      if (t === T.W) bg = th.wallBg;
-      else if (t === T.E) bg = chips >= needed ? th.ok + "22" : th.accent + "22";
-      let em = "";
-      if (isP) em = th.player;
-      else if (t === T.W) em = th.wall;
-      else if (t === T.C) em = th.chip;
-      else if (t === T.E) em = th.exit;
+      const { em, bg } = getTileRender(t);
       cells.push(<span key={x} style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: 34, height: 34, fontSize: 20, background: bg,
         border: "1px solid " + th.gridBorder, borderRadius: 3,
-      }}>{em}</span>);
+      }}>{isP ? th.player : em}</span>);
     }
     rows.push(<div key={y} style={{ display: "flex", gap: 2 }}>{cells}</div>);
   }

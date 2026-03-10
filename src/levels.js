@@ -1,4 +1,14 @@
-export const T = { F: 0, W: 1, C: 2, E: 3 };
+export const T = {
+  F: 0, W: 1, C: 2, E: 3,
+  // Keys
+  KR: 4, KB: 5, KG: 6, KY: 7,
+  // Doors
+  DR: 8, DB: 9, DG: 10, DY: 11,
+  // Hazards
+  FIRE: 12, WATER: 13, ICE: 14,
+  // Boots
+  BOOTS_FIRE: 15, BOOTS_WATER: 16, BOOTS_ICE: 17,
+};
 
 export const LEVELS = [
   {
@@ -70,7 +80,51 @@ export const TNAME = {
   [T.F]: "floor",
   [T.W]: "wall",
   [T.C]: "chip",
-  [T.E]: "exit"
+  [T.E]: "exit",
+  [T.KR]: "red_key",
+  [T.KB]: "blue_key",
+  [T.KG]: "green_key",
+  [T.KY]: "yellow_key",
+  [T.DR]: "red_door",
+  [T.DB]: "blue_door",
+  [T.DG]: "green_door",
+  [T.DY]: "yellow_door",
+  [T.FIRE]: "fire",
+  [T.WATER]: "water",
+  [T.ICE]: "ice",
+  [T.BOOTS_FIRE]: "fire_boots",
+  [T.BOOTS_WATER]: "water_boots",
+  [T.BOOTS_ICE]: "ice_boots",
+};
+
+// Maps door tile to required key item name
+export const DOOR_KEY = {
+  [T.DR]: "red_key",
+  [T.DB]: "blue_key",
+  [T.DG]: "green_key",
+  [T.DY]: "yellow_key",
+};
+
+// Maps key tile to item name
+export const KEY_ITEM = {
+  [T.KR]: "red_key",
+  [T.KB]: "blue_key",
+  [T.KG]: "green_key",
+  [T.KY]: "yellow_key",
+};
+
+// Maps hazard tile to required boot item name
+export const HAZARD_BOOT = {
+  [T.FIRE]: "fire_boots",
+  [T.WATER]: "water_boots",
+  [T.ICE]: null, // Ice is passable without boots
+};
+
+// Maps boot tile to item name
+export const BOOT_ITEM = {
+  [T.BOOTS_FIRE]: "fire_boots",
+  [T.BOOTS_WATER]: "water_boots",
+  [T.BOOTS_ICE]: "ice_boots",
 };
 
 export const MAN = {
