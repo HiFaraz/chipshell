@@ -1479,4 +1479,66 @@ describe('ice sliding', () => {
     expect(exitCode).toBe(0);
     expect(newState.pos).toEqual([2, 1]); // On the ice tile, stopped by wall
   });
+
+  it('stops at locked exit during slide (not enough chips)', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.E, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1], 1); // Need 1 chip but have 0
+    const { state: newState, output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0); // Successfully stopped
+    expect(newState.pos).toEqual([3, 1]); // Stopped at last ice before locked exit
+    expect(newState.won).toBe(false);
+    expect(output.some(o => o.x.includes('Stopped at edge'))).toBe(true);
+  });
+
+  it('slides through fire with boots and stops on fire (does not continue sliding)', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_FIRE, T.F, T.ICE, T.FIRE, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    // Pick up fire boots
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('fire_boots');
+    // Move to floor, then to ice
+    state = execOne(state, 'mv 1 0').state;
+    // Now step onto ice and slide - should stop on fire, not continue to ice after
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([5, 1]); // Stopped on FIRE, not [6,1] (ice after fire)
+  });
+
+  it('slides into water during slide = death', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.ICE, T.ICE, T.WATER, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    const { output, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(1);
+    expect(output.some(o => o.t === 'death' && o.x === 'water')).toBe(true);
+  });
+
+  it('slides through water with boots and stops on water', () => {
+    const grid = [
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+      [T.W, T.F, T.BOOTS_WATER, T.F, T.ICE, T.WATER, T.ICE, T.W],
+      [T.W, T.W, T.W, T.W, T.W, T.W, T.W, T.W],
+    ];
+    let state = createTestLevel(grid, [1, 1]);
+    // Pick up water boots
+    state = execOne(state, 'mv 1 0').state;
+    expect(state.backpack).toContain('water_boots');
+    // Move to floor, then to ice
+    state = execOne(state, 'mv 1 0').state;
+    // Slide - should stop on water
+    const { state: newState, exitCode } = execOne(state, 'mv 1 0');
+    expect(exitCode).toBe(0);
+    expect(newState.pos).toEqual([5, 1]); // Stopped on WATER
+  });
 });

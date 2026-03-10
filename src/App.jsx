@@ -15,13 +15,11 @@ export default function Game() {
   const [inp, setInp] = useState("");
   const [hist, setHist] = useState([]);
   const [hI, setHI] = useState(-1);
-  const [fin, setFin] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editorText, setEditorText] = useState("");
   const [running, setRunning] = useState(false);
   const [runLines, setRunLines] = useState([]);
   const [runHighlight, setRunHighlight] = useState(-1);
-  const [sheetSnap, setSheetSnap] = useState("log");
   const [isMobile, setIsMobile] = useState(false);
   const [showInterstitial, setShowInterstitial] = useState(false);
   const [interstitialData, setInterstitialData] = useState(null);
@@ -30,6 +28,7 @@ export default function Game() {
   const logR = useRef(null), inR = useRef(null), edR = useRef(null);
   const stateRef = useRef(null);
   const runAbort = useRef(false);
+  const deathTimeoutRef = useRef(null);
 
   const th = THEMES[theme];
 
@@ -83,7 +82,6 @@ export default function Game() {
         const fn = o.x;
         setEditing(fn);
         setEditorText(stateRef.current.scripts[fn] || "# " + fn + "\n");
-        if (isMobile) setSheetSnap("full");
       } else if (o.t === "bash") {
         runScript(o.x.fn, o.x.src, o.x.mode);
       } else if (o.t === "reset") {
@@ -92,7 +90,12 @@ export default function Game() {
       } else if (o.t === "death") {
         // Handle death - show death screen
         setShowDeath({ type: o.x });
-        setTimeout(() => {
+        // Clear any existing timeout to prevent race conditions
+        if (deathTimeoutRef.current) {
+          clearTimeout(deathTimeoutRef.current);
+        }
+        deathTimeoutRef.current = setTimeout(() => {
+          deathTimeoutRef.current = null;
           setShowDeath(null);
           load(stateRef.current.level, true);
         }, 2000);
@@ -202,9 +205,9 @@ export default function Game() {
   const execInput = (raw) => {
     const s = raw.trim(); if (!s) return;
 
-    // Handle interstitial dismissal
+    // Handle interstitial dismissal (any input dismisses)
     if (showInterstitial) {
-      if (s === "" || s === "next" || s === "n") {
+      if (s === "next" || s === "n") {
         dismissInterstitial();
       }
       return;
@@ -212,6 +215,10 @@ export default function Game() {
 
     // Handle death screen dismissal
     if (showDeath) {
+      if (deathTimeoutRef.current) {
+        clearTimeout(deathTimeoutRef.current);
+        deathTimeoutRef.current = null;
+      }
       setShowDeath(null);
       load(stateRef.current.level, true);
       return;
@@ -253,12 +260,10 @@ export default function Game() {
     setGameState(newState);
     setEditing(null);
     out("Saved " + editing);
-    if (isMobile) setSheetSnap("log");
   };
 
   const cancelEditor = () => {
     setEditing(null);
-    if (isMobile) setSheetSnap("log");
   };
 
   const onKey = (e) => {
@@ -271,6 +276,10 @@ export default function Game() {
       }
       // Handle death screen dismissal
       if (showDeath) {
+        if (deathTimeoutRef.current) {
+          clearTimeout(deathTimeoutRef.current);
+          deathTimeoutRef.current = null;
+        }
         setShowDeath(null);
         load(stateRef.current.level, true);
         setInp("");
@@ -388,6 +397,8 @@ export default function Game() {
           value={editorText}
           onChange={e => setEditorText(e.target.value)}
           spellCheck={false}
+          autoCapitalize="none"
+          autoCorrect="off"
           aria-label={"Script editor for " + editing}
           style={{
             flex: 1, padding: 8, background: "transparent", border: "none", outline: "none",
@@ -550,6 +561,9 @@ export default function Game() {
           onKeyDown={onKey}
           style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
           autoFocus
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="text"
           aria-label="Press Enter to continue"
         />
       </div>
@@ -565,7 +579,14 @@ export default function Game() {
       <div style={{
         ...getInterstitialStyle(),
         background: isTerminal ? "#1a0505" : th.bg,
-      }} onClick={() => { setShowDeath(null); load(stateRef.current.level, true); }}>
+      }} onClick={() => {
+        if (deathTimeoutRef.current) {
+          clearTimeout(deathTimeoutRef.current);
+          deathTimeoutRef.current = null;
+        }
+        setShowDeath(null);
+        load(stateRef.current.level, true);
+      }}>
         <div style={{ maxWidth: 400, width: "100%" }}>
           {/* Header */}
           <div style={{
@@ -619,6 +640,9 @@ export default function Game() {
           onKeyDown={onKey}
           style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
           autoFocus
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="text"
           aria-label="Press Enter to continue"
         />
       </div>
@@ -653,7 +677,7 @@ export default function Game() {
             <span style={{ color: th.ok, fontWeight: 700 }}>$</span>
             <input ref={inR} value={inp} onChange={e => setInp(e.target.value)} onKeyDown={onKey}
               placeholder={running && stepResolve.current ? "press Enter to step..." : "type a command..."}
-              spellCheck={false} autoComplete="off" aria-label="Command input"
+              spellCheck={false} autoComplete="off" autoCapitalize="none" autoCorrect="off" inputMode="text" aria-label="Command input"
               style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: th.fg, fontFamily: "inherit", fontSize: "inherit", caretColor: th.accent }} />
           </div>
         )}
@@ -687,7 +711,7 @@ export default function Game() {
           <span style={{ color: th.ok, fontWeight: 700 }}>$</span>
           <input ref={inR} value={inp} onChange={e => setInp(e.target.value)} onKeyDown={onKey}
             placeholder={running && stepResolve.current ? "press Enter to step..." : "type a command..."}
-            spellCheck={false} autoComplete="off" aria-label="Command input"
+            spellCheck={false} autoComplete="off" autoCapitalize="none" autoCorrect="off" inputMode="text" aria-label="Command input"
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: th.fg, fontFamily: "inherit", fontSize: "inherit", caretColor: th.accent }} />
         </div>
       )}

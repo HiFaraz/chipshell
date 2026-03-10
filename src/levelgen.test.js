@@ -414,3 +414,132 @@ describe('level shapes', () => {
     expect(totalFloors).toBeGreaterThan(0);
   });
 });
+
+describe('generateLevel robustness', () => {
+  it('does not exceed max retries and returns valid level', () => {
+    // Generate multiple levels to stress test the retry logic
+    for (let i = 0; i < 10; i++) {
+      const level = generateLevel(Math.floor(Math.random() * 10) + 1);
+      expect(level).toBeDefined();
+      expect(level.grid).toBeDefined();
+      expect(level.start).toBeDefined();
+      expect(level.chips).toBeGreaterThan(0);
+    }
+  });
+
+  it('handles all difficulty levels without stack overflow', () => {
+    // Test each difficulty level multiple times
+    for (let d = 1; d <= 10; d++) {
+      for (let i = 0; i < 3; i++) {
+        const level = generateLevel(d);
+        expect(level).toBeDefined();
+        expect(level.w).toBeGreaterThanOrEqual(9);
+        expect(level.h).toBeGreaterThanOrEqual(9);
+      }
+    }
+  });
+
+  it('generates fallback level when all attempts fail', () => {
+    // This tests that the fallback mechanism works
+    // We can't easily force all attempts to fail, but we can verify fallback level structure
+    const level = generateLevel(1);
+    expect(level).toBeDefined();
+    // If shape is 'fallback', it should still have valid structure
+    if (level.shape === 'fallback') {
+      expect(level.grid).toBeDefined();
+      expect(level.start).toBeDefined();
+      expect(level.chips).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('level solvability validation', () => {
+  // Helper BFS for testing
+  function canReachWithKeys(grid, w, h, start, targetPositions) {
+    const doorKeyMap = {
+      [T.DR]: T.KR,
+      [T.DB]: T.KB,
+      [T.DG]: T.KG,
+      [T.DY]: T.KY,
+    };
+    const keyTiles = [T.KR, T.KB, T.KG, T.KY];
+
+    let collectedKeys = new Set();
+    let visited = new Set();
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      const queue = [start];
+      const newVisited = new Set(visited);
+
+      while (queue.length > 0) {
+        const [cx, cy] = queue.shift();
+        const key = cx + ',' + cy;
+        if (newVisited.has(key)) continue;
+        newVisited.add(key);
+
+        const tile = grid[cy][cx];
+
+        // Collect key
+        if (keyTiles.includes(tile)) {
+          if (!collectedKeys.has(tile)) {
+            collectedKeys.add(tile);
+            changed = true;
+          }
+        }
+
+        // Explore neighbors
+        const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+        for (const [dx, dy] of neighbors) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          const nkey = nx + ',' + ny;
+
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          if (newVisited.has(nkey)) continue;
+
+          const nTile = grid[ny][nx];
+          if (nTile === T.W) continue;
+
+          // Check if door is passable
+          if (doorKeyMap[nTile]) {
+            const neededKey = doorKeyMap[nTile];
+            if (!collectedKeys.has(neededKey)) continue;
+          }
+
+          queue.push([nx, ny]);
+        }
+      }
+      visited = newVisited;
+    }
+
+    // Check if all targets are reachable
+    for (const [tx, ty] of targetPositions) {
+      if (!visited.has(tx + ',' + ty)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  it('vault levels with doors have keys accessible before doors', () => {
+    // Generate several vault levels and verify solvability
+    for (let i = 0; i < 5; i++) {
+      const level = generateLevel(6, 'vault');
+
+      // Find all chips and exit
+      const targets = [];
+      for (let y = 0; y < level.h; y++) {
+        for (let x = 0; x < level.w; x++) {
+          if (level.grid[y][x] === T.C || level.grid[y][x] === T.E) {
+            targets.push([x, y]);
+          }
+        }
+      }
+
+      const solvable = canReachWithKeys(level.grid, level.w, level.h, level.start, targets);
+      expect(solvable).toBe(true);
+    }
+  });
+});

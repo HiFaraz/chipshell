@@ -15,6 +15,8 @@ const SHAPES = {
   vault: { name: 'Vault', minDiff: 5, maxDiff: 10, weight: (d) => d >= 7 ? 3 : 1 },
 };
 
+const MAX_GENERATION_ATTEMPTS = 50;
+
 /**
  * Generate a procedural level
  * @param {number} difficulty - 1 to 10, scales grid size and complexity
@@ -32,52 +34,98 @@ export function generateLevel(difficulty, forceShape = null) {
   const h = size;
 
   // Pick shape based on difficulty weights
-  const shape = forceShape || pickShape(d);
+  let shape = forceShape || pickShape(d);
 
-  // Initialize grid with walls
+  for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
+    // After several failed attempts with current shape, fall back to maze
+    if (attempt > 0 && attempt % 10 === 0 && !forceShape) {
+      shape = 'maze';
+    }
+
+    // Initialize grid with walls
+    const grid = [];
+    for (let y = 0; y < h; y++) {
+      grid.push(new Array(w).fill(T.W));
+    }
+
+    // Generate shape-specific layout
+    let shapeResult;
+    switch (shape) {
+      case 'waterworld':
+        shapeResult = generateWaterworld(grid, w, h, d);
+        break;
+      case 'corridor':
+        shapeResult = generateCorridor(grid, w, h, d);
+        break;
+      case 'arena':
+        shapeResult = generateArena(grid, w, h, d);
+        break;
+      case 'icemaze':
+        shapeResult = generateIcemaze(grid, w, h, d);
+        break;
+      case 'vault':
+        shapeResult = generateVault(grid, w, h, d);
+        break;
+      case 'maze':
+      default:
+        shapeResult = generateMaze(grid, w, h, d);
+        break;
+    }
+
+    // Validate level - ensure all required items are reachable
+    if (validateLevel(grid, w, h, shapeResult.start, shapeResult.placed)) {
+      return {
+        w,
+        h,
+        chips: shapeResult.chipCount,
+        grid,
+        start: shapeResult.start,
+        shape,
+        tut: [SHAPES[shape].name + " (difficulty " + d + ")"],
+      };
+    }
+  }
+
+  // Fallback: generate a simple guaranteed-solvable level
+  return generateFallbackLevel(w, h, d);
+}
+
+/**
+ * Generate a simple fallback level that is guaranteed to be solvable
+ */
+function generateFallbackLevel(w, h, d) {
   const grid = [];
   for (let y = 0; y < h; y++) {
     grid.push(new Array(w).fill(T.W));
   }
 
-  // Generate shape-specific layout
-  let shapeResult;
-  switch (shape) {
-    case 'waterworld':
-      shapeResult = generateWaterworld(grid, w, h, d);
-      break;
-    case 'corridor':
-      shapeResult = generateCorridor(grid, w, h, d);
-      break;
-    case 'arena':
-      shapeResult = generateArena(grid, w, h, d);
-      break;
-    case 'icemaze':
-      shapeResult = generateIcemaze(grid, w, h, d);
-      break;
-    case 'vault':
-      shapeResult = generateVault(grid, w, h, d);
-      break;
-    case 'maze':
-    default:
-      shapeResult = generateMaze(grid, w, h, d);
-      break;
+  // Create simple open area
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      grid[y][x] = T.F;
+    }
   }
 
-  // Validate level - ensure all required items are reachable
-  if (!validateLevel(grid, w, h, shapeResult.start, shapeResult.placed)) {
-    // If validation fails, try again (recursive with same difficulty)
-    return generateLevel(difficulty, forceShape);
+  // Place start
+  const start = [1, 1];
+
+  // Place chips along a diagonal path
+  const chipCount = 2 + d;
+  for (let i = 0; i < chipCount && i < w - 3; i++) {
+    grid[2 + (i % (h - 4))][2 + i] = T.C;
   }
+
+  // Place exit in opposite corner
+  grid[h - 2][w - 2] = T.E;
 
   return {
     w,
     h,
-    chips: shapeResult.chipCount,
+    chips: chipCount,
     grid,
-    start: shapeResult.start,
-    shape,
-    tut: [SHAPES[shape].name + " (difficulty " + d + ")"],
+    start,
+    shape: 'fallback',
+    tut: ["Simple level (difficulty " + d + ")"],
   };
 }
 
@@ -641,30 +689,83 @@ function validateLevel(grid, w, h, start, placed) {
 }
 
 /**
- * BFS that simulates item collection
+ * BFS that simulates item collection with key/door and boot/hazard constraints
+ * Uses iterative expansion: collect keys/boots, then unlock new areas
  */
 function bfsWithItems(grid, w, h, start, placed) {
-  const visited = new Set();
-  const queue = [start];
-  visited.add(start[0] + "," + start[1]);
+  // Maps for door->key and hazard->boot relationships
+  const doorKeyMap = {
+    [T.DR]: T.KR,
+    [T.DB]: T.KB,
+    [T.DG]: T.KG,
+    [T.DY]: T.KY,
+  };
+  const keyTiles = new Set([T.KR, T.KB, T.KG, T.KY]);
+  const bootTiles = new Set([T.BOOTS_FIRE, T.BOOTS_WATER, T.BOOTS_ICE]);
+  const hazardBootMap = {
+    [T.FIRE]: T.BOOTS_FIRE,
+    [T.WATER]: T.BOOTS_WATER,
+    // ICE doesn't require boots
+  };
 
-  while (queue.length > 0) {
-    const [cx, cy] = queue.shift();
+  let collectedKeys = new Set();
+  let collectedBoots = new Set();
+  let visited = new Set();
+  let changed = true;
 
-    const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    for (const [dx, dy] of neighbors) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      const key = nx + "," + ny;
+  // Keep expanding until no new areas unlocked
+  while (changed) {
+    changed = false;
+    const queue = [[start[0], start[1]]];
 
-      if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-      if (visited.has(key)) continue;
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift();
+      const posKey = cx + "," + cy;
 
-      const tile = grid[ny][nx];
-      if (tile === T.W) continue;
+      if (visited.has(posKey)) continue;
+      visited.add(posKey);
 
-      visited.add(key);
-      queue.push([nx, ny]);
+      const tile = grid[cy][cx];
+
+      // Collect key if present
+      if (keyTiles.has(tile) && !collectedKeys.has(tile)) {
+        collectedKeys.add(tile);
+        changed = true;
+      }
+
+      // Collect boot if present
+      if (bootTiles.has(tile) && !collectedBoots.has(tile)) {
+        collectedBoots.add(tile);
+        changed = true;
+      }
+
+      // Explore neighbors
+      const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+      for (const [dx, dy] of neighbors) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        const nKey = nx + "," + ny;
+
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+        if (visited.has(nKey)) continue;
+
+        const nTile = grid[ny][nx];
+        if (nTile === T.W) continue;
+
+        // Check if door is passable
+        if (doorKeyMap[nTile] !== undefined) {
+          const neededKey = doorKeyMap[nTile];
+          if (!collectedKeys.has(neededKey)) continue;
+        }
+
+        // Check if hazard is passable
+        if (hazardBootMap[nTile] !== undefined) {
+          const neededBoot = hazardBootMap[nTile];
+          if (!collectedBoots.has(neededBoot)) continue;
+        }
+
+        queue.push([nx, ny]);
+      }
     }
   }
 
