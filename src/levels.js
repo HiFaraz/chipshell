@@ -204,6 +204,30 @@ export const LEVELS = [
       "Plan your entry angle carefully."
     ]
   },
+  // Level 11: Something Follows (9x9, 2 chips)
+  // Crawler tutorial. Simple level with one crawler enemy.
+  {
+    w: 9, h: 9, chips: 2,
+    grid: [
+      [1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,1],
+      [1,0,1,1,1,0,1,0,1],
+      [1,0,1,2,0,0,1,0,1],
+      [1,0,1,0,0,0,0,0,1],
+      [1,0,0,0,0,1,1,0,1],
+      [1,0,1,0,0,0,2,0,1],
+      [1,0,0,0,0,0,0,3,1],
+      [1,1,1,1,1,1,1,1,1]
+    ],
+    start: [1, 1],
+    entities: [
+      { pid: 1001, type: 'crawler', pos: [7, 1] }
+    ],
+    tut: [
+      "Something is chasing you! Enemies move when you move.",
+      "Use 'ps' to see enemy positions."
+    ]
+  },
 ];
 
 export const DIR = {
@@ -269,6 +293,7 @@ export const MAN = {
   ls: "ls [/backpack|/scripts] — List adjacent, inventory, or scripts",
   pwd: "pwd — Coordinates",
   whoami: "whoami — Stats",
+  ps: "ps — List enemy processes (PID, type, position)",
   cat: "cat /tile|<script> — Inspect tile or view script",
   man: "man [cmd] — Help",
   clear: "clear — Clear output",

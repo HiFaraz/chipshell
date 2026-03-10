@@ -74,6 +74,9 @@ export function generateLevel(difficulty, forceShape = null) {
 
     // Validate level - ensure all required items are reachable
     if (validateLevel(grid, w, h, shapeResult.start, shapeResult.placed)) {
+      // Place crawlers for difficulty >= 3
+      const entities = placeCrawlers(grid, w, h, d, shapeResult.start);
+
       return {
         w,
         h,
@@ -82,6 +85,7 @@ export function generateLevel(difficulty, forceShape = null) {
         start: shapeResult.start,
         shape,
         tut: [SHAPES[shape].name + " (difficulty " + d + ")"],
+        entities,
       };
     }
   }
@@ -118,6 +122,9 @@ function generateFallbackLevel(w, h, d) {
   // Place exit in opposite corner
   grid[h - 2][w - 2] = T.E;
 
+  // Place crawlers for difficulty >= 3
+  const entities = placeCrawlers(grid, w, h, d, start);
+
   return {
     w,
     h,
@@ -126,6 +133,7 @@ function generateFallbackLevel(w, h, d) {
     start,
     shape: 'fallback',
     tut: ["Simple level (difficulty " + d + ")"],
+    entities,
   };
 }
 
@@ -781,4 +789,56 @@ function shuffle(arr) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+/**
+ * Place crawlers on the level based on difficulty
+ * @param {array} grid - 2D grid array
+ * @param {number} w - grid width
+ * @param {number} h - grid height
+ * @param {number} d - difficulty (1-10)
+ * @param {[number, number]} start - player start position
+ * @returns {array} entities array
+ */
+function placeCrawlers(grid, w, h, d, start) {
+  // No crawlers for difficulty < 3
+  if (d < 3) return [];
+
+  // Number of crawlers scales with difficulty: 1 at d=3, up to 3 at d=10
+  const crawlerCount = Math.min(Math.floor((d - 1) / 3) + 1, 3);
+
+  // Find valid positions for crawlers (floor tiles far from start)
+  const [sx, sy] = start;
+  const candidates = [];
+
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const tile = grid[y][x];
+      // Must be a floor tile (not items, not hazards)
+      if (tile !== T.F) continue;
+
+      // Manhattan distance from start must be at least 5
+      const distance = Math.abs(x - sx) + Math.abs(y - sy);
+      if (distance < 5) continue;
+
+      candidates.push([x, y, distance]);
+    }
+  }
+
+  // Sort by distance (farthest first) and shuffle within similar distances
+  candidates.sort((a, b) => b[2] - a[2]);
+
+  const entities = [];
+  let pid = 1001;
+
+  for (let i = 0; i < crawlerCount && i < candidates.length; i++) {
+    const [x, y] = candidates[i];
+    entities.push({
+      pid: pid++,
+      type: 'crawler',
+      pos: [x, y],
+    });
+  }
+
+  return entities;
 }

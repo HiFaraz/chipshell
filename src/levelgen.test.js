@@ -543,3 +543,73 @@ describe('level solvability validation', () => {
     }
   });
 });
+
+describe('crawler placement', () => {
+  it('low difficulty levels (1-2) have no crawlers', () => {
+    for (let d = 1; d <= 2; d++) {
+      for (let i = 0; i < 5; i++) {
+        const level = generateLevel(d);
+        expect(level.entities || []).toEqual([]);
+      }
+    }
+  });
+
+  it('high difficulty levels (3+) have crawlers', () => {
+    let foundCrawler = false;
+    // Try multiple times as generation is random
+    for (let i = 0; i < 10; i++) {
+      const level = generateLevel(5);
+      if (level.entities && level.entities.length > 0) {
+        foundCrawler = true;
+        break;
+      }
+    }
+    expect(foundCrawler).toBe(true);
+  });
+
+  it('crawlers placed far from start (at least 5 Manhattan distance)', () => {
+    for (let i = 0; i < 10; i++) {
+      const level = generateLevel(7);
+      if (!level.entities || level.entities.length === 0) continue;
+
+      const [sx, sy] = level.start;
+      for (const entity of level.entities) {
+        const [ex, ey] = entity.pos;
+        const distance = Math.abs(ex - sx) + Math.abs(ey - sy);
+        expect(distance).toBeGreaterThanOrEqual(5);
+      }
+    }
+  });
+
+  it('crawlers do not block starting area', () => {
+    for (let i = 0; i < 10; i++) {
+      const level = generateLevel(6);
+      if (!level.entities || level.entities.length === 0) continue;
+
+      const [sx, sy] = level.start;
+      for (const entity of level.entities) {
+        const [ex, ey] = entity.pos;
+        // Crawler should not be at start position
+        expect(ex !== sx || ey !== sy).toBe(true);
+      }
+    }
+  });
+
+  it('crawlers have valid PIDs starting at 1001', () => {
+    let foundCrawler = false;
+    for (let i = 0; i < 10; i++) {
+      const level = generateLevel(8);
+      if (level.entities && level.entities.length > 0) {
+        foundCrawler = true;
+        const pids = level.entities.map(e => e.pid);
+        expect(pids[0]).toBeGreaterThanOrEqual(1001);
+        // Check PIDs are sequential
+        for (let j = 1; j < pids.length; j++) {
+          expect(pids[j]).toBe(pids[j - 1] + 1);
+        }
+        break;
+      }
+    }
+    expect(foundCrawler).toBe(true);
+  });
+});

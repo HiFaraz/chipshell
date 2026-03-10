@@ -89,7 +89,12 @@ export default function Game() {
         out("Level reset. Scripts preserved.");
       } else if (o.t === "death") {
         // Handle death - show death screen
-        setShowDeath({ type: o.x });
+        // Determine death type: "fire", "water", or "entity" (for Process X caught you)
+        let deathType = o.x;
+        if (typeof o.x === 'string' && o.x.includes('Process')) {
+          deathType = 'entity';
+        }
+        setShowDeath({ type: deathType, message: o.x });
         // Clear any existing timeout to prevent race conditions
         if (deathTimeoutRef.current) {
           clearTimeout(deathTimeoutRef.current);
@@ -338,18 +343,37 @@ export default function Game() {
     return { em, bg };
   };
 
+  // Build entity position lookup
+  const entityMap = new Map();
+  if (gameState.entities) {
+    for (const entity of gameState.entities) {
+      entityMap.set(entity.pos[0] + ',' + entity.pos[1], entity);
+    }
+  }
+
   const rows = [];
   for (let y = vy0; y < vy1; y++) {
     const cells = [];
     for (let x = vx0; x < vx1; x++) {
       const isP = x === pos[0] && y === pos[1];
+      const entity = entityMap.get(x + ',' + y);
       const t = grid[y][x];
       const { em, bg } = getTileRender(t);
+
+      // Determine what to render: player > entity > tile
+      let content = em;
+      if (entity) {
+        content = th.crawler || th.player;
+      }
+      if (isP) {
+        content = th.player;
+      }
+
       cells.push(<span key={x} style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: 34, height: 34, fontSize: 20, background: bg,
         border: "1px solid " + th.gridBorder, borderRadius: 3,
-      }}>{isP ? th.player : em}</span>);
+      }}>{content}</span>);
     }
     rows.push(<div key={y} style={{ display: "flex", gap: 2 }}>{cells}</div>);
   }
@@ -605,7 +629,7 @@ export default function Game() {
             color: th.fg,
             marginBottom: 24,
           }}>
-            {deathInfo.message}
+            {showDeath.message && showDeath.type === 'entity' ? showDeath.message : deathInfo.message}
           </div>
 
           {/* Tip */}

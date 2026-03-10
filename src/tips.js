@@ -139,4 +139,9 @@ export const DEATH_MESSAGES = {
     message: "You fell in water without water_boots!",
     tip: "Find water_boots before crossing water tiles.",
   },
+  entity: {
+    header: "CAUGHT!",
+    message: "An enemy process caught you!",
+    tip: "Use 'ps' to track enemies. They move when you move.",
+  },
 };

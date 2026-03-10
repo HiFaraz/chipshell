@@ -1489,3 +1489,181 @@ describe('ice sliding', () => {
     expect(newState.pos).toEqual([5, 1]); // Stopped on WATER
   });
 });
+
+describe('tick system', () => {
+  const makeGrid = (w, h) => {
+    const grid = [];
+    for (let y = 0; y < h; y++) {
+      grid.push(new Array(w).fill(T.F));
+    }
+    // Add walls around edges
+    for (let x = 0; x < w; x++) {
+      grid[0][x] = T.W;
+      grid[h - 1][x] = T.W;
+    }
+    for (let y = 0; y < h; y++) {
+      grid[y][0] = T.W;
+      grid[y][w - 1] = T.W;
+    }
+    return grid;
+  };
+
+  const createStateWithEntity = (grid, playerPos, entityPos) => {
+    const w = grid[0].length;
+    const h = grid.length;
+    return {
+      grid,
+      pos: playerPos,
+      chips: 0,
+      needed: 1,
+      backpack: [],
+      won: false,
+      aliases: { r: "mv 1 0", l: "mv -1 0", u: "mv 0 -1", d: "mv 0 1" },
+      scripts: {},
+      level: -1,
+      levelObj: { w, h, chips: 1, grid, start: playerPos },
+      moves: 0,
+      entities: [{ pid: 1001, type: 'crawler', pos: entityPos }],
+      turnCount: 0,
+    };
+  };
+
+  it('mv triggers tick (crawler moves after player)', () => {
+    const grid = makeGrid(9, 5);
+    const state = createStateWithEntity(grid, [1, 2], [7, 2]);
+    const { state: newState } = execOne(state, 'mv 1 0');
+    // Player moved right, crawler should have moved one step closer
+    expect(newState.pos).toEqual([2, 2]);
+    expect(newState.entities[0].pos).toEqual([6, 2]);
+  });
+
+  it('failed mv does not trigger tick', () => {
+    const grid = makeGrid(9, 5);
+    const state = createStateWithEntity(grid, [1, 2], [7, 2]);
+    const { state: newState, exitCode } = execOne(state, 'mv -1 0'); // Hit wall
+    expect(exitCode).toBe(1);
+    // Crawler should not have moved
+    expect(newState.entities[0].pos).toEqual([7, 2]);
+  });
+
+  it('ls does not trigger tick', () => {
+    const grid = makeGrid(9, 5);
+    const state = createStateWithEntity(grid, [1, 2], [7, 2]);
+    const { state: newState } = execOne(state, 'ls');
+    // Crawler should not have moved
+    expect(newState.entities[0].pos).toEqual([7, 2]);
+  });
+
+  it('pwd does not trigger tick', () => {
+    const grid = makeGrid(9, 5);
+    const state = createStateWithEntity(grid, [1, 2], [7, 2]);
+    const { state: newState } = execOne(state, 'pwd');
+    // Crawler should not have moved
+    expect(newState.entities[0].pos).toEqual([7, 2]);
+  });
+
+  it('chained mv && mv triggers two ticks', () => {
+    const grid = makeGrid(11, 5);
+    const state = createStateWithEntity(grid, [1, 2], [9, 2]);
+    const { state: newState } = lineExec(state, 'mv 1 0 && mv 1 0');
+    // Player moved right twice
+    expect(newState.pos).toEqual([3, 2]);
+    // Crawler should have moved two steps (one per mv)
+    expect(newState.entities[0].pos).toEqual([7, 2]);
+  });
+
+  it('repeat 3 mv triggers three ticks', () => {
+    const grid = makeGrid(13, 5);
+    const state = createStateWithEntity(grid, [1, 2], [11, 2]);
+    const { state: newState } = execOne(state, 'repeat 3 mv 1 0');
+    // Player moved right 3 times
+    expect(newState.pos).toEqual([4, 2]);
+    // Crawler should have moved 3 steps
+    expect(newState.entities[0].pos).toEqual([8, 2]);
+  });
+
+  it('for loop mv triggers ticks per iteration', () => {
+    const grid = makeGrid(13, 5);
+    const state = createStateWithEntity(grid, [1, 2], [11, 2]);
+    const { state: newState } = execOne(state, 'for i in 1..3; do mv 1 0; done');
+    // Player moved right 3 times
+    expect(newState.pos).toEqual([4, 2]);
+    // Crawler should have moved 3 steps
+    expect(newState.entities[0].pos).toEqual([8, 2]);
+  });
+
+  it('crawler catches player = death', () => {
+    const grid = makeGrid(5, 5);
+    // Crawler is 2 steps away, player moves 1 step closer
+    const state = createStateWithEntity(grid, [1, 2], [3, 2]);
+    const { output } = execOne(state, 'mv 1 0');
+    // After player moves to [2, 2], crawler moves to [2, 2] -> death
+    expect(output.some(o => o.t === 'death' && o.x.includes('1001'))).toBe(true);
+  });
+});
+
+describe('ps command', () => {
+  it('lists single entity', () => {
+    const state = {
+      grid: [[T.F]],
+      pos: [0, 0],
+      chips: 0,
+      needed: 1,
+      backpack: [],
+      won: false,
+      aliases: {},
+      scripts: {},
+      level: -1,
+      levelObj: { w: 1, h: 1, chips: 1, grid: [[T.F]], start: [0, 0] },
+      moves: 0,
+      entities: [{ pid: 1001, type: 'crawler', pos: [5, 3] }],
+    };
+    const { output, exitCode } = execOne(state, 'ps');
+    expect(exitCode).toBe(0);
+    expect(output.some(o => o.x.includes('1001') && o.x.includes('crawler'))).toBe(true);
+  });
+
+  it('lists multiple entities', () => {
+    const state = {
+      grid: [[T.F]],
+      pos: [0, 0],
+      chips: 0,
+      needed: 1,
+      backpack: [],
+      won: false,
+      aliases: {},
+      scripts: {},
+      level: -1,
+      levelObj: { w: 1, h: 1, chips: 1, grid: [[T.F]], start: [0, 0] },
+      moves: 0,
+      entities: [
+        { pid: 1001, type: 'crawler', pos: [5, 3] },
+        { pid: 1002, type: 'crawler', pos: [7, 4] },
+      ],
+    };
+    const { output, exitCode } = execOne(state, 'ps');
+    expect(exitCode).toBe(0);
+    expect(output.some(o => o.x.includes('1001'))).toBe(true);
+    expect(output.some(o => o.x.includes('1002'))).toBe(true);
+  });
+
+  it('returns empty when no entities', () => {
+    const state = {
+      grid: [[T.F]],
+      pos: [0, 0],
+      chips: 0,
+      needed: 1,
+      backpack: [],
+      won: false,
+      aliases: {},
+      scripts: {},
+      level: -1,
+      levelObj: { w: 1, h: 1, chips: 1, grid: [[T.F]], start: [0, 0] },
+      moves: 0,
+      entities: [],
+    };
+    const { output, exitCode } = execOne(state, 'ps');
+    expect(exitCode).toBe(0);
+    expect(output.some(o => o.x.includes('No processes'))).toBe(true);
+  });
+});

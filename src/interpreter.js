@@ -1,5 +1,6 @@
 import { T, LEVELS, DIR, TNAME, MAN, DOOR_KEY, KEY_ITEM, HAZARD_BOOT, BOOT_ITEM } from './levels.js';
 import { THEMES } from './themes.js';
+import { tickEntities, checkCollision } from './entities.js';
 
 // Re-export constants for convenience
 export { T, LEVELS, DIR, TNAME, MAN, THEMES, DOOR_KEY, KEY_ITEM, HAZARD_BOOT, BOOT_ITEM };
@@ -24,6 +25,8 @@ export function createState(levelOrIndex) {
     level: isIndex ? levelOrIndex : -1, // -1 for generated levels
     levelObj: lv, // Store level object for dimensions
     moves: 0, // Track successful commands
+    entities: lv.entities ? lv.entities.map(e => ({ ...e, pos: [...e.pos] })) : [],
+    turnCount: 0,
   };
 }
 
@@ -257,6 +260,19 @@ export function execOne(state, raw) {
       currentTile = newState.grid[newState.pos[1]][newState.pos[0]];
     }
 
+    // Tick entities after successful movement
+    if (newState.entities && newState.entities.length > 0) {
+      const tickResult = tickEntities(newState);
+      newState = tickResult.state;
+      newState = { ...newState, turnCount: (newState.turnCount || 0) + 1 };
+      // Add tick output (including potential death)
+      output.push(...tickResult.output);
+      // If death occurred, return with exitCode 1
+      if (tickResult.output.some(o => o.t === 'death')) {
+        return { state: newState, output, exitCode: 1 };
+      }
+    }
+
     return { state: newState, output, exitCode: 0 };
   }
 
@@ -294,6 +310,18 @@ export function execOne(state, raw) {
   // whoami
   if (cmd === "whoami") {
     out("Player | Chips: " + state.chips + "/" + state.needed + " | Level: " + (state.level + 1) + " | Moves: " + state.moves);
+    return { state, output, exitCode: 0 };
+  }
+
+  // ps - list entities
+  if (cmd === "ps") {
+    if (!state.entities || state.entities.length === 0) {
+      out("No processes running.");
+      return { state, output, exitCode: 0 };
+    }
+    for (const entity of state.entities) {
+      out("PID " + entity.pid + " " + entity.type + " at [" + entity.pos[0] + ", " + entity.pos[1] + "]");
+    }
     return { state, output, exitCode: 0 };
   }
 
